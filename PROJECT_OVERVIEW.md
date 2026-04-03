@@ -2,9 +2,11 @@
 
 ## 1. Vision
 
-**mail-manager** is a modular, extensible email-intelligence engine that ingests Gmail emails, analyzes them using locally hosted LLMs, and maintains *living documents* that always reflect the current state of tasks, topics, and daily summaries.
+**mail-manager** is a modular, extensible email-intelligence and personal productivity engine. It ingests emails from **Gmail** and **Microsoft 365 Outlook**, analyzes them using locally hosted LLMs, and maintains *living documents* that always reflect the current state of tasks, topics, and daily summaries.
 
-It is designed as a reusable intelligence layer that can be embedded into a broader personal knowledge management (PKM) system and expanded to additional data sources such as Google Calendar, Google Tasks, and Notion.
+Beyond email intelligence, mail-manager provides **project management** features (tasks with subtasks, lists, priorities, and due dates) and a **combined calendar view** aggregating Google Calendar and Outlook Calendar events.
+
+It is designed as a reusable intelligence layer that can be embedded into a broader personal knowledge management (PKM) system and expanded to additional data sources such as Notion and Slack.
 
 > **Core mission:** transform raw communication streams into structured, queryable, and continuously updated knowledge — entirely on local infrastructure, with no paid cloud services.
 
@@ -14,17 +16,19 @@ It is designed as a reusable intelligence layer that can be embedded into a broa
 
 | # | Objective |
 |---|-----------|
-| 1 | Ingest both historical and new Gmail emails via the Gmail API |
+| 1 | Ingest both historical and new emails from Gmail and Microsoft 365 Outlook |
 | 2 | Convert emails to Markdown for readability and LLM-friendliness |
-| 3 | Store all data (emails, summaries, tasks, topics) in PostgreSQL |
+| 3 | Store all data (emails, summaries, tasks, topics, calendar events) in PostgreSQL |
 | 4 | Use `pgvector` for embeddings and semantic search |
 | 5 | Group emails by thread and semantic topic |
 | 6 | Generate daily summaries (morning + evening) |
 | 7 | Maintain evolving topic snapshots |
 | 8 | Detect junk mail while surfacing potentially valuable promotions |
 | 9 | Extract action items and sync them bidirectionally with Google Tasks |
-| 10 | Produce and update Markdown-based living documents |
-| 11 | Provide a modern web UI for browsing insights and interacting with the system |
+| 10 | Provide project management with task lists, subtasks, priorities, and due dates |
+| 11 | Display a combined calendar view (Google Calendar + Outlook Calendar, read-only) |
+| 12 | Produce and update Markdown-based living documents |
+| 13 | Provide a modern web UI for browsing insights and interacting with the system |
 
 ---
 
@@ -38,11 +42,12 @@ The system relies **exclusively** on free and open-source technologies. No paid 
 | Orchestration | [Docker Compose](https://docs.docker.com/compose/) |
 | Python environments | [uv](https://github.com/astral-sh/uv) by Astral |
 | Database | [PostgreSQL](https://www.postgresql.org/) + [pgvector](https://github.com/pgvector/pgvector) |
-| Local LLM inference | [Llama.cpp](https://github.com/ggerganov/llama.cpp) / [Ollama](https://ollama.com/) |
+| Local LLM inference | [Ollama](https://ollama.com/) (default model: llama3.1:8b, embeddings: nomic-embed-text) |
 | Backend framework | [FastAPI](https://fastapi.tiangolo.com/) (or equivalent free framework) |
 | Frontend | [Vue 3](https://vuejs.org/) + [Tailwind CSS](https://tailwindcss.com/) + TypeScript |
-| Email integration | Gmail API (free tier) |
+| Email integration | Gmail API (free tier), Microsoft Graph API (free tier) |
 | Task integration | Google Tasks API (free tier) |
+| Calendar integration | Google Calendar API + Microsoft Graph Calendar API (read-only) |
 
 **Guiding principles:** reproducibility, local execution, and modularity. Every developer must be able to run the full stack with `docker compose up`.
 
@@ -53,32 +58,33 @@ The system relies **exclusively** on free and open-source technologies. No paid 
 mail-manager follows a **microservice architecture** with a dedicated **Backend-for-Frontend (BFF)** layer that shields the UI from internal service complexity.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Frontend (Vue 3)                         │
-└──────────────────────────────┬──────────────────────────────────┘
-                               │ HTTP / WebSocket
-┌──────────────────────────────▼──────────────────────────────────┐
-│                       BFF Layer (FastAPI)                        │
-└──┬──────────┬──────────┬──────────┬──────────┬──────────┬───────┘
-   │          │          │          │          │          │
-   ▼          ▼          ▼          ▼          ▼          ▼
-Ingest  Preprocess  LLM Analysis  Topic   Summary   Task Mgmt
-Service  Service     Service    Tracking  Service   Service
-   │          │          │          │          │          │
-   └──────────┴──────────┴──────────┴──────────┴──────────┘
-                               │
-                    ┌──────────▼──────────┐
-                    │  PostgreSQL + pgvector │
-                    └─────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           Frontend (Vue 3)                              │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     │ HTTP / WebSocket
+┌────────────────────────────────────▼────────────────────────────────────┐
+│                          BFF Layer (FastAPI)                             │
+└──┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬───┘
+   │          │          │          │          │          │          │
+   ▼          ▼          ▼          ▼          ▼          ▼          ▼
+Ingest  Preprocess  LLM Analysis  Topic   Summary   Task Mgmt  Calendar
+Service  Service     Service    Tracking  Service   Service     Sync
+   │          │          │          │          │          │          │
+   └──────────┴──────────┴──────────┴──────────┴──────────┴──────────┘
+                                     │
+                          ┌──────────▼──────────┐
+                          │  PostgreSQL + pgvector │
+                          └─────────────────────┘
 ```
 
 ### 4.1 Ingestion Service
 
-- Connects to the Gmail API using OAuth 2.0
-- Fetches both historical and new/streaming emails
-- Converts raw email payloads to clean Markdown
+- Multi-provider email ingestion via a provider-adapter pattern
+- **Gmail**: connects via Gmail API using OAuth 2.0; fetches historical and new/streaming emails
+- **Outlook**: connects via Microsoft Graph API using MSAL; fetches messages with delta queries
+- Converts raw email payloads to clean Markdown (shared converter)
 - Stores email content, metadata, and embeddings in Postgres
-- Deduplicates by Gmail message ID
+- Deduplicates by `(provider, external_id)` composite key
 
 ### 4.2 Preprocessing & Normalization Service
 
@@ -112,26 +118,37 @@ Service  Service     Service    Tracking  Service   Service
 
 ### 4.6 Task Management Service
 
+- Enhanced project management: task lists, subtasks, priorities, due dates
+- Stores tasks organized in lists with ordering (position), subtask trees via `parent_task_id`
 - Extracts tasks and action items from emails
-- Stores tasks in Postgres with source-email and topic relationships
-- Syncs **bidirectionally** with Google Tasks API
+- Syncs **bidirectionally** with Google Tasks API (lists ↔ task_lists, tasks ↔ tasks)
 - Maintains sync metadata (external task ID, last-sync timestamp, conflict state)
 
-### 4.7 BFF Layer
+### 4.7 Calendar Sync Service
+
+- Aggregates calendar events from Google Calendar and Outlook Calendar (read-only)
+- **Google Calendar**: connects via Google Calendar API using OAuth 2.0
+- **Outlook Calendar**: connects via Microsoft Graph Calendar API using MSAL
+- Stores unified calendar events in Postgres with incremental sync (delta tokens)
+- Exposes events to the BFF for the combined calendar UI view
+
+### 4.8 BFF Layer
 
 - Provides a clean, versioned REST (and optional GraphQL) API for the UI
 - Aggregates and shapes data from multiple internal services
 - Handles user authentication and permission checks
 - Rate-limits and caches responses where appropriate
 
-### 4.8 Frontend (Vue 3 + Tailwind CSS + TypeScript)
+### 4.9 Frontend (Vue 3 + Tailwind CSS + TypeScript)
 
 - Renders living documents (tasks, topics, summaries) in Markdown
 - Displays dashboards with filtering and search
 - Provides email-insight views and topic drill-downs
-- Optional: Chrome extension integration for in-browser context
+- Task manager with list-based views, subtask trees, priorities, and due dates
+- Combined calendar view (Google + Outlook events, color-coded by provider)
+- Settings page for Ollama model selection and provider connections
 
-### 4.9 Orchestration
+### 4.10 Orchestration
 
 - All services are defined in a single `docker-compose.yml` at the repository root
 - Python services use `uv` for environment and dependency management
@@ -149,18 +166,19 @@ All data is stored in PostgreSQL to ensure consistent querying, semantic search,
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | UUID PK | Internal identifier |
-| `gmail_message_id` | TEXT UNIQUE | Gmail message ID (dedup key) |
-| `thread_id` | TEXT | Gmail thread ID |
+| `provider` | TEXT | Email provider (`gmail` or `outlook`) |
+| `external_id` | TEXT | Provider-specific message ID (dedup key with provider) |
+| `thread_id` | TEXT | Thread/conversation ID (nullable — Outlook may not have one) |
 | `sender` | TEXT | Sender email address |
 | `recipients` | TEXT[] | To / CC / BCC addresses |
 | `subject` | TEXT | Email subject line |
 | `received_at` | TIMESTAMPTZ | Received timestamp |
-| `labels` | TEXT[] | Gmail labels |
+| `labels` | TEXT[] | Provider labels/categories |
 | `markdown_body` | TEXT | Full email body as Markdown |
-| `embedding` | vector(1536) | Semantic embedding (pgvector) |
+| `embedding` | vector(768) | Semantic embedding (pgvector, nomic-embed-text) |
 | `created_at` | TIMESTAMPTZ | Row creation timestamp |
 
-Relationships: many-to-many with `topics` and `tasks`.
+Unique constraint: `(provider, external_id)`. Relationships: many-to-many with `topics` and `tasks`.
 
 ### 5.2 `topics`
 
@@ -168,7 +186,7 @@ Relationships: many-to-many with `topics` and `tasks`.
 |--------|------|-------------|
 | `id` | UUID PK | Internal identifier |
 | `name` | TEXT | Human-readable topic name |
-| `embedding` | vector(1536) | Semantic embedding |
+| `embedding` | vector(768) | Semantic embedding |
 | `snapshots` | JSONB | Ordered array of evolution snapshots |
 | `created_at` | TIMESTAMPTZ | Row creation timestamp |
 | `updated_at` | TIMESTAMPTZ | Last snapshot update |
@@ -183,7 +201,7 @@ Relationships: many-to-many with `emails`, `summaries`, and `tasks`.
 | `summary_type` | TEXT | `morning` or `evening` |
 | `date` | DATE | Summary date |
 | `markdown_body` | TEXT | Summary content as Markdown |
-| `embedding` | vector(1536) | Semantic embedding |
+| `embedding` | vector(768) | Semantic embedding |
 | `diff_hash` | TEXT | SHA hash for change detection |
 | `created_at` | TIMESTAMPTZ | Row creation timestamp |
 
@@ -194,14 +212,56 @@ Relationships: many-to-many with `topics`.
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | UUID PK | Internal identifier |
-| `description` | TEXT | Task description |
+| `title` | TEXT | Task title |
+| `notes` | TEXT | Extended description / body |
 | `status` | TEXT | `pending`, `in_progress`, `done`, `cancelled` |
+| `priority` | TEXT | `none`, `low`, `medium`, `high` |
+| `due_date` | TIMESTAMPTZ | Optional due date |
+| `completed_at` | TIMESTAMPTZ | When the task was completed |
+| `position` | INT | Ordering position within a list |
+| `list_id` | UUID FK → `task_lists` | Task list this task belongs to |
+| `parent_task_id` | UUID FK → `tasks` | Parent task (for subtasks) |
 | `source_email_id` | UUID FK → `emails` | Email the task was extracted from |
 | `google_task_id` | TEXT | External Google Tasks ID |
 | `last_synced_at` | TIMESTAMPTZ | Last bidirectional sync timestamp |
 | `created_at` | TIMESTAMPTZ | Row creation timestamp |
+| `updated_at` | TIMESTAMPTZ | Last modification timestamp |
 
-Relationships: many-to-many with `topics`.
+Relationships: many-to-many with `topics`. Self-referencing via `parent_task_id` for subtasks.
+
+### 5.5 `task_lists`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID PK | Internal identifier |
+| `name` | TEXT | List name |
+| `google_tasklist_id` | TEXT | External Google Tasks list ID |
+| `position` | INT | Ordering position |
+| `created_at` | TIMESTAMPTZ | Row creation timestamp |
+| `updated_at` | TIMESTAMPTZ | Last modification timestamp |
+
+### 5.6 `calendar_events`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID PK | Internal identifier |
+| `provider` | TEXT | Calendar provider (`google` or `outlook`) |
+| `external_id` | TEXT | Provider-specific event ID |
+| `calendar_id` | TEXT | Provider calendar ID |
+| `title` | TEXT | Event title |
+| `description` | TEXT | Event description |
+| `start_at` | TIMESTAMPTZ | Event start time |
+| `end_at` | TIMESTAMPTZ | Event end time |
+| `all_day` | BOOLEAN | Whether the event spans full day(s) |
+| `location` | TEXT | Event location |
+| `recurrence` | TEXT | RRULE recurrence string |
+| `status` | TEXT | `confirmed`, `tentative`, `cancelled` |
+| `organizer` | TEXT | Organizer email |
+| `attendees` | JSONB | Array of attendee objects |
+| `created_at` | TIMESTAMPTZ | Row creation timestamp |
+| `updated_at` | TIMESTAMPTZ | Last modification timestamp |
+
+Unique constraint: `(provider, external_id)`.
 
 ---
 
@@ -230,11 +290,11 @@ The architecture is intentionally service-oriented so that new capabilities can 
 
 Planned future extensions include:
 
-- **Google Calendar ingestion** — ingest events and correlate with email threads and tasks
 - **Notion integration** — push living documents and task states to Notion pages
 - **Additional communication channels** — Slack, Microsoft Teams, SMS
 - **Knowledge-graph expansion** — build an entity graph (people, organizations, projects) across all data sources
 - **Multi-agent orchestration** — coordinate specialized LLM agents for research, drafting, and scheduling
+- **Calendar write operations** — create and edit events from within mail-manager
 
 New services will follow the same patterns: a dedicated Postgres schema, a `uv`-managed Python environment, a Dockerfile, and a service definition in `docker-compose.yml`.
 
@@ -248,14 +308,15 @@ mail-manager/
 ├── README.md                    # Quick-start guide
 ├── docker-compose.yml           # Full stack definition
 ├── services/
-│   ├── ingestion/               # 4.1 Ingestion Service
+│   ├── ingestion/               # 4.1 Ingestion Service (Gmail + Outlook)
 │   ├── preprocessing/           # 4.2 Preprocessing & Normalization Service
 │   ├── llm-analysis/            # 4.3 LLM Analysis Service
 │   ├── topic-tracking/          # 4.4 Topic Tracking Service
 │   ├── summary-generation/      # 4.5 Summary Generation Service
 │   ├── task-management/         # 4.6 Task Management Service
-│   └── bff/                     # 4.7 BFF Layer
-├── frontend/                    # 4.8 Vue 3 + Tailwind + TypeScript
+│   ├── calendar-sync/           # 4.7 Calendar Sync Service
+│   └── bff/                     # 4.8 BFF Layer
+├── frontend/                    # 4.9 Vue 3 + Tailwind + TypeScript
 ├── db/
 │   └── migrations/              # SQL migrations (pgvector schema)
 └── docs/                        # Additional architectural documentation
