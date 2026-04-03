@@ -1,0 +1,179 @@
+services:
+  # ─── Infrastructure ───
+
+  postgres:
+    build:
+      context: ./db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mailmanager}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mailmanager_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-mailmanager}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/migrations:/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mailmanager} -d ${POSTGRES_DB:-mailmanager}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollamadata:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:11434/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ─── Backend Services ───
+
+  ingestion:
+    build:
+      context: ./services/ingestion
+    ports:
+      - "${INGESTION_PORT:-8001}:8001"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  preprocessing:
+    build:
+      context: ./services/preprocessing
+    ports:
+      - "${PREPROCESSING_PORT:-8002}:8002"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+
+  llm-analysis:
+    build:
+      context: ./services/llm-analysis
+    ports:
+      - "${LLM_ANALYSIS_PORT:-8003}:8003"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+
+  topic-tracking:
+    build:
+      context: ./services/topic-tracking
+    ports:
+      - "${TOPIC_TRACKING_PORT:-8004}:8004"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  summary-generation:
+    build:
+      context: ./services/summary-generation
+    ports:
+      - "${SUMMARY_GENERATION_PORT:-8005}:8005"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+
+  task-management:
+    build:
+      context: ./services/task-management
+    ports:
+      - "${TASK_MANAGEMENT_PORT:-8006}:8006"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  calendar-sync:
+    build:
+      context: ./services/calendar-sync
+    ports:
+      - "${CALENDAR_SYNC_PORT:-8007}:8007"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  bff:
+    build:
+      context: ./services/bff
+    ports:
+      - "${BFF_PORT:-8000}:8000"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ingestion:
+        condition: service_started
+      preprocessing:
+        condition: service_started
+      llm-analysis:
+        condition: service_started
+      topic-tracking:
+        condition: service_started
+      summary-generation:
+        condition: service_started
+      task-management:
+        condition: service_started
+      calendar-sync:
+        condition: service_started
+
+  # ─── Frontend ───
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      bff:
+        condition: service_started
+
+volumes:
+  pgdata:
+  redisdata:
+  ollamadata:
