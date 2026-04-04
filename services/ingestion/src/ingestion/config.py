@@ -7,10 +7,12 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
     google_client_id: str = ""
     google_client_secret: str = ""
-    google_redirect_uri: str = "http://localhost:8000/auth/callback"
+    google_redirect_uri: str = "http://localhost:3000/auth/callback"
     ms_client_id: str = ""
     ms_client_secret: str = ""
     ms_tenant_id: str = "common"
+    ms_redirect_uri: str = "http://localhost:3000/auth/callback"
+    frontend_url: str = "http://localhost:3000"
     host: str = "0.0.0.0"
     port: int = 8001
 

@@ -1,7 +1,18 @@
+import secrets
+from uuid import UUID
+
+import httpx
 import structlog
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from ingestion.account_repository import (
+    delete_account,
+    get_account,
+    get_accounts_by_provider,
+    list_accounts,
+    save_account,
+)
 from ingestion.config import settings
 from ingestion.converter import email_body_to_markdown
 from ingestion.providers import BaseEmailProvider
@@ -16,17 +27,19 @@ logger = structlog.get_logger()
 
 router = APIRouter(prefix="/ingest", tags=["ingestion"])
 
-# In-memory token store (production would use encrypted DB storage)
-_token_store: dict[str, OAuthTokens] = {}
+# Temporary state storage for OAuth flows (maps state -> provider)
+_oauth_state_map: dict[str, str] = {}
 
 
-def _get_provider(provider: EP) -> BaseEmailProvider:
-    tokens = _token_store.get(provider.value)
+def _make_provider(provider: EP, tokens: OAuthTokens | None = None) -> BaseEmailProvider:
     if provider == EP.GMAIL:
         return GmailProvider(tokens=tokens)
     elif provider == EP.OUTLOOK:
         return OutlookProvider(tokens=tokens)
     raise HTTPException(status_code=400, detail=f"Unknown provider: {provider}")
+
+
+# ─── Schemas ───
 
 
 class AuthUrlResponse(BaseModel):
@@ -41,62 +54,282 @@ class AuthCallbackRequest(BaseModel):
 
 class AuthCallbackResponse(BaseModel):
     provider: str
-    authenticated: bool
+    email: str
+    account_id: str
+
+
+class AccountResponse(BaseModel):
+    id: str
+    provider: str
+    email: str
+    display_name: str
+    scopes: list[str]
+    created_at: str
+    updated_at: str
+
+
+class DeviceFlowStartResponse(BaseModel):
+    device_code: str
+    user_code: str
+    verification_uri: str
+    verification_uri_complete: str | None = None
+    expires_in: int
+    interval: int
+
+
+class DeviceFlowPollResponse(BaseModel):
+    status: str  # "pending" | "complete" | "expired"
+    account_id: str | None = None
+    email: str | None = None
+
+
+# ─── OAuth Redirect Flow ───
 
 
 @router.get("/auth/url/{provider}")
 async def get_auth_url(provider: EP) -> AuthUrlResponse:
-    """Get the OAuth authorization URL for a provider."""
-    adapter = _get_provider(provider)
+    """Get the OAuth authorization URL for a provider. Includes state for CSRF protection."""
+    state = secrets.token_urlsafe(32)
+    _oauth_state_map[state] = provider.value
+
+    adapter = _make_provider(provider)
     url = adapter.get_auth_url()
-    return AuthUrlResponse(auth_url=url, provider=provider.value)
+    # Append state to URL
+    separator = "&" if "?" in url else "?"
+    url_with_state = f"{url}{separator}state={state}"
+
+    return AuthUrlResponse(auth_url=url_with_state, provider=provider.value)
 
 
 @router.post("/auth/callback")
 async def auth_callback(req: AuthCallbackRequest) -> AuthCallbackResponse:
-    """Exchange an OAuth authorization code for tokens."""
-    adapter = _get_provider(req.provider)
+    """Exchange an OAuth authorization code for tokens and save the account."""
+    adapter = _make_provider(req.provider)
     tokens = await adapter.authenticate(auth_code=req.code)
-    _token_store[req.provider.value] = tokens
-    logger.info("oauth tokens stored", provider=req.provider.value)
-    return AuthCallbackResponse(provider=req.provider.value, authenticated=True)
+
+    # Fetch user email/profile from the provider
+    email, display_name = await _fetch_user_profile(req.provider, tokens.access_token)
+
+    # Determine scopes
+    from ingestion.providers.gmail import SCOPES as GMAIL_SCOPES
+    from ingestion.providers.outlook import SCOPES as OUTLOOK_SCOPES
+
+    scopes = GMAIL_SCOPES if req.provider == EP.GMAIL else OUTLOOK_SCOPES
+
+    account = await save_account(
+        provider=req.provider.value,
+        email=email,
+        display_name=display_name,
+        access_token=tokens.access_token,
+        refresh_token=tokens.refresh_token,
+        token_expiry=tokens.token_expiry,
+        scopes=scopes,
+    )
+
+    logger.info("account connected", provider=req.provider.value, email=email)
+    return AuthCallbackResponse(provider=req.provider.value, email=email, account_id=str(account["id"]))
+
+
+# ─── Device Authorization Flow ───
+
+
+@router.post("/auth/device/{provider}")
+async def start_device_flow(provider: EP) -> DeviceFlowStartResponse:
+    """Start the OAuth device authorization flow for a provider."""
+    if provider == EP.GMAIL:
+        from ingestion.providers.gmail import SCOPES as GMAIL_SCOPES
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://oauth2.googleapis.com/device/code",
+                data={"client_id": settings.google_client_id, "scope": " ".join(GMAIL_SCOPES)},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        return DeviceFlowStartResponse(
+            device_code=data["device_code"],
+            user_code=data["user_code"],
+            verification_uri=data["verification_url"],
+            verification_uri_complete=data.get("verification_url"),
+            expires_in=data.get("expires_in", 1800),
+            interval=data.get("interval", 5),
+        )
+
+    elif provider == EP.OUTLOOK:
+        from ingestion.providers.outlook import SCOPES as OUTLOOK_SCOPES
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"https://login.microsoftonline.com/{settings.ms_tenant_id}/oauth2/v2.0/devicecode",
+                data={"client_id": settings.ms_client_id, "scope": " ".join(OUTLOOK_SCOPES)},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        return DeviceFlowStartResponse(
+            device_code=data["device_code"],
+            user_code=data["user_code"],
+            verification_uri=data["verification_uri"],
+            verification_uri_complete=data.get("verification_uri_complete"),
+            expires_in=data.get("expires_in", 900),
+            interval=data.get("interval", 5),
+        )
+
+    raise HTTPException(status_code=400, detail=f"Device flow not supported for {provider}")
+
+
+@router.post("/auth/device/{provider}/poll")
+async def poll_device_flow(provider: EP, device_code: str) -> DeviceFlowPollResponse:
+    """Poll the device authorization flow to check if the user has authorized."""
+    if provider == EP.GMAIL:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": settings.google_client_id,
+                    "client_secret": settings.google_client_secret,
+                    "device_code": device_code,
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                },
+            )
+        data = resp.json()
+        if "error" in data:
+            if data["error"] in ("authorization_pending", "slow_down"):
+                return DeviceFlowPollResponse(status="pending")
+            if data["error"] == "expired_token":
+                return DeviceFlowPollResponse(status="expired")
+            raise HTTPException(status_code=400, detail=data.get("error_description", data["error"]))
+
+        access_token = data["access_token"]
+        refresh_token = data.get("refresh_token")
+        from datetime import datetime, timezone
+
+        token_expiry = datetime.now(tz=timezone.utc).replace(
+            second=datetime.now(tz=timezone.utc).second + data.get("expires_in", 3600)
+        )
+
+    elif provider == EP.OUTLOOK:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"https://login.microsoftonline.com/{settings.ms_tenant_id}/oauth2/v2.0/token",
+                data={
+                    "client_id": settings.ms_client_id,
+                    "client_secret": settings.ms_client_secret,
+                    "device_code": device_code,
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                },
+            )
+        data = resp.json()
+        if "error" in data:
+            if data["error"] in ("authorization_pending", "slow_down"):
+                return DeviceFlowPollResponse(status="pending")
+            if data["error"] == "expired_token":
+                return DeviceFlowPollResponse(status="expired")
+            raise HTTPException(status_code=400, detail=data.get("error_description", data["error"]))
+
+        access_token = data["access_token"]
+        refresh_token = data.get("refresh_token")
+        from datetime import datetime, timezone
+
+        token_expiry = datetime.now(tz=timezone.utc).replace(
+            second=datetime.now(tz=timezone.utc).second + data.get("expires_in", 3600)
+        )
+    else:
+        raise HTTPException(status_code=400, detail=f"Device flow not supported for {provider}")
+
+    email, display_name = await _fetch_user_profile(provider, access_token)
+
+    from ingestion.providers.gmail import SCOPES as GMAIL_SCOPES
+    from ingestion.providers.outlook import SCOPES as OUTLOOK_SCOPES
+
+    scopes = GMAIL_SCOPES if provider == EP.GMAIL else OUTLOOK_SCOPES
+
+    account = await save_account(
+        provider=provider.value,
+        email=email,
+        display_name=display_name,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_expiry=token_expiry,
+        scopes=scopes,
+    )
+
+    logger.info("account connected via device flow", provider=provider.value, email=email)
+    return DeviceFlowPollResponse(status="complete", account_id=str(account["id"]), email=email)
+
+
+# ─── Account Management ───
+
+
+@router.get("/accounts")
+async def get_accounts() -> list[AccountResponse]:
+    """List all connected accounts."""
+    accounts = await list_accounts()
+    return [
+        AccountResponse(
+            id=str(a["id"]),
+            provider=a["provider"],
+            email=a["email"],
+            display_name=a["display_name"],
+            scopes=list(a["scopes"]),
+            created_at=a["created_at"].isoformat(),
+            updated_at=a["updated_at"].isoformat(),
+        )
+        for a in accounts
+    ]
+
+
+@router.delete("/accounts/{account_id}")
+async def disconnect_account(account_id: UUID) -> dict:
+    """Disconnect (delete) a connected account."""
+    deleted = await delete_account(str(account_id))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Account not found")
+    logger.info("account disconnected", account_id=str(account_id))
+    return {"detail": "Account disconnected"}
+
+
+# ─── Email Sync (now multi-account) ───
 
 
 @router.post("/sync/{provider}")
 async def sync_emails(provider: EP, max_results: int = Query(100, ge=1, le=500)) -> IngestResult:
-    """Run an incremental sync for a provider. Falls back to full fetch on first run."""
-    if provider.value not in _token_store:
-        raise HTTPException(status_code=401, detail=f"Not authenticated with {provider.value}. Call /auth first.")
+    """Run an incremental sync for all accounts of a provider."""
+    accounts = await get_accounts_by_provider(provider.value)
+    if not accounts:
+        raise HTTPException(status_code=401, detail=f"No accounts connected for {provider.value}. Connect an account first.")
 
-    adapter = _get_provider(provider)
-    await adapter.authenticate()  # Refresh tokens if needed
-
-    # Get sync state
-    state = await get_sync_state(provider)
-    since_token = state.get("history_id") if provider == EP.GMAIL else state.get("delta_link")
-
-    # Fetch emails
-    raw_emails, new_sync_token = await adapter.fetch_new_emails(since_token=since_token)
-
-    # Convert and store
     result = IngestResult(provider=provider)
-    result.total_fetched = len(raw_emails)
 
-    for raw in raw_emails:
-        markdown_body = email_body_to_markdown(raw.html_body, raw.text_body)
-        stored = await upsert_email(raw, markdown_body)
-        if stored:
-            result.new_stored += 1
-            await publish_new_email(stored)
-        else:
-            result.duplicates_skipped += 1
+    for acct in accounts:
+        tokens = OAuthTokens(
+            access_token=acct["access_token"],
+            refresh_token=acct["refresh_token"],
+            token_expiry=acct["token_expiry"],
+        )
+        adapter = _make_provider(provider, tokens)
+        await adapter.authenticate()
 
-    # Save sync state
-    if new_sync_token:
-        if provider == EP.GMAIL:
-            await save_sync_state(provider, history_id=new_sync_token)
-        else:
-            await save_sync_state(provider, delta_link=new_sync_token)
+        state = await get_sync_state(provider)
+        since_token = state.get("history_id") if provider == EP.GMAIL else state.get("delta_link")
+        raw_emails, new_sync_token = await adapter.fetch_new_emails(since_token=since_token)
+        result.total_fetched += len(raw_emails)
+
+        for raw in raw_emails:
+            markdown_body = email_body_to_markdown(raw.html_body, raw.text_body)
+            stored = await upsert_email(raw, markdown_body)
+            if stored:
+                result.new_stored += 1
+                await publish_new_email(stored)
+            else:
+                result.duplicates_skipped += 1
+
+        if new_sync_token:
+            if provider == EP.GMAIL:
+                await save_sync_state(provider, history_id=new_sync_token)
+            else:
+                await save_sync_state(provider, delta_link=new_sync_token)
 
     logger.info(
         "sync completed",
@@ -114,26 +347,33 @@ async def fetch_emails(
     max_results: int = Query(100, ge=1, le=500),
     page_token: str | None = Query(None),
 ) -> IngestResult:
-    """Fetch a batch of emails (full history crawl, not incremental)."""
-    if provider.value not in _token_store:
-        raise HTTPException(status_code=401, detail=f"Not authenticated with {provider.value}. Call /auth first.")
-
-    adapter = _get_provider(provider)
-    await adapter.authenticate()
-
-    raw_emails = await adapter.fetch_emails(max_results=max_results, page_token=page_token)
+    """Fetch a batch of emails from all accounts of a provider."""
+    accounts = await get_accounts_by_provider(provider.value)
+    if not accounts:
+        raise HTTPException(status_code=401, detail=f"No accounts connected for {provider.value}. Connect an account first.")
 
     result = IngestResult(provider=provider)
-    result.total_fetched = len(raw_emails)
 
-    for raw in raw_emails:
-        markdown_body = email_body_to_markdown(raw.html_body, raw.text_body)
-        stored = await upsert_email(raw, markdown_body)
-        if stored:
-            result.new_stored += 1
-            await publish_new_email(stored)
-        else:
-            result.duplicates_skipped += 1
+    for acct in accounts:
+        tokens = OAuthTokens(
+            access_token=acct["access_token"],
+            refresh_token=acct["refresh_token"],
+            token_expiry=acct["token_expiry"],
+        )
+        adapter = _make_provider(provider, tokens)
+        await adapter.authenticate()
+
+        raw_emails = await adapter.fetch_emails(max_results=max_results, page_token=page_token)
+        result.total_fetched += len(raw_emails)
+
+        for raw in raw_emails:
+            markdown_body = email_body_to_markdown(raw.html_body, raw.text_body)
+            stored = await upsert_email(raw, markdown_body)
+            if stored:
+                result.new_stored += 1
+                await publish_new_email(stored)
+            else:
+                result.duplicates_skipped += 1
 
     logger.info(
         "batch fetch completed",
@@ -143,3 +383,29 @@ async def fetch_emails(
         duplicates=result.duplicates_skipped,
     )
     return result
+
+
+# ─── Helpers ───
+
+
+async def _fetch_user_profile(provider: EP, access_token: str) -> tuple[str, str]:
+    """Fetch the user's email and display name from the provider."""
+    if provider == EP.GMAIL:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "https://www.googleapis.com/oauth2/v2/userinfo",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        return data.get("email", ""), data.get("name", "")
+    elif provider == EP.OUTLOOK:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "https://graph.microsoft.com/v1.0/me",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        return data.get("mail", data.get("userPrincipalName", "")), data.get("displayName", "")
+    return "", ""

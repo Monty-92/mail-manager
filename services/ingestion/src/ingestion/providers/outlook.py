@@ -12,7 +12,7 @@ from ingestion.schemas import EmailProvider, OAuthTokens, RawEmail
 logger = structlog.get_logger()
 
 GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
-SCOPES = ["Mail.Read", "User.Read"]
+SCOPES = ["Mail.Read", "User.Read", "Calendars.ReadWrite"]
 
 
 class OutlookProvider(BaseEmailProvider):
@@ -33,17 +33,16 @@ class OutlookProvider(BaseEmailProvider):
     def get_auth_url(self) -> str:
         result = self._msal_app.get_authorization_request_url(
             scopes=SCOPES,
-            redirect_uri=settings.google_redirect_uri.replace("/auth/callback", "/auth/ms/callback"),
+            redirect_uri=settings.ms_redirect_uri,
         )
         return result
 
     async def authenticate(self, auth_code: str | None = None) -> OAuthTokens:
         if auth_code:
-            redirect_uri = settings.google_redirect_uri.replace("/auth/callback", "/auth/ms/callback")
             result = self._msal_app.acquire_token_by_authorization_code(
                 code=auth_code,
                 scopes=SCOPES,
-                redirect_uri=redirect_uri,
+                redirect_uri=settings.ms_redirect_uri,
             )
         elif self._tokens and self._tokens.refresh_token:
             result = self._msal_app.acquire_token_by_refresh_token(
