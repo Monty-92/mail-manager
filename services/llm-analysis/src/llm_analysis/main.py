@@ -1,8 +1,14 @@
+import asyncio
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
 import structlog
 from fastapi import FastAPI
+
+from llm_analysis.analyzer import handle_preprocessed_event
+from llm_analysis.events import close_redis, subscribe_preprocessed_emails
+from llm_analysis.repository import close_pool
+from llm_analysis.router import router
 
 logger = structlog.get_logger()
 
@@ -17,10 +23,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ],
     )
     logger.info("llm-analysis service started")
+    subscriber_task = asyncio.create_task(subscribe_preprocessed_emails(handle_preprocessed_event))
     yield
+    subscriber_task.cancel()
+    try:
+        await subscriber_task
+    except asyncio.CancelledError:
+        pass
+    await close_pool()
+    await close_redis()
+    logger.info("llm-analysis service stopped")
 
 
 app = FastAPI(title="LLM Analysis Service", version="0.1.0", lifespan=lifespan)
+app.include_router(router)
 
 
 @app.get("/health")
