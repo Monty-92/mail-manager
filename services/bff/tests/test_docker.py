@@ -1,0 +1,153 @@
+"""Docker container tests for the BFF service.
+
+Run with: pytest tests/test_docker.py -v
+Requires: Docker daemon running
+
+These tests are marked with @pytest.mark.docker and can be skipped
+via: pytest -m "not docker"
+"""
+
+import subprocess
+import time
+from pathlib import Path
+
+import httpx
+import pytest
+
+SERVICE_NAME = "bff"
+IMAGE_TAG = "mailmanager-bff:test"
+CONTAINER_NAME = "test-bff"
+CONTAINER_PORT = 8000
+HOST_PORT = 18000
+
+SERVICE_ROOT = Path(__file__).resolve().parent.parent
+
+
+@pytest.fixture(scope="module")
+def docker_image():
+    """Build the Docker image for the BFF service."""
+    build_result = subprocess.run(
+        ["docker", "build", "-t", IMAGE_TAG, "."],
+        cwd=str(SERVICE_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert build_result.returncode == 0, f"Docker build failed:\n{build_result.stderr}"
+    yield IMAGE_TAG
+    subprocess.run(["docker", "rmi", IMAGE_TAG], capture_output=True)
+
+
+@pytest.fixture(scope="module")
+def docker_container(docker_image):
+    """Run the container and wait for it to be healthy."""
+    subprocess.run(["docker", "rm", "-f", CONTAINER_NAME], capture_output=True)
+
+    run_result = subprocess.run(
+        [
+            "docker", "run", "-d",
+            "--name", CONTAINER_NAME,
+            "-p", f"{HOST_PORT}:{CONTAINER_PORT}",
+            "-e", "DATABASE_URL=postgresql+asyncpg://test:test@localhost:5432/test",
+            "-e", "REDIS_URL=redis://localhost:6379/0",
+            docker_image,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert run_result.returncode == 0, f"Docker run failed:\n{run_result.stderr}"
+
+    base_url = f"http://localhost:{HOST_PORT}"
+    healthy = False
+    for _ in range(30):
+        try:
+            resp = httpx.get(f"{base_url}/health", timeout=2.0)
+            if resp.status_code == 200:
+                healthy = True
+                break
+        except httpx.HTTPError:
+            pass
+        time.sleep(1)
+
+    if not healthy:
+        logs = subprocess.run(
+            ["docker", "logs", CONTAINER_NAME], capture_output=True, text=True
+        )
+        subprocess.run(["docker", "rm", "-f", CONTAINER_NAME], capture_output=True)
+        pytest.fail(f"Container did not become healthy.\nLogs:\n{logs.stdout}\n{logs.stderr}")
+
+    yield base_url
+
+    subprocess.run(["docker", "rm", "-f", CONTAINER_NAME], capture_output=True)
+
+
+@pytest.mark.docker
+class TestDockerBuild:
+    def test_image_builds_successfully(self, docker_image):
+        """The Docker image builds without errors."""
+        result = subprocess.run(
+            ["docker", "image", "inspect", docker_image],
+            capture_output=True,
+        )
+        assert result.returncode == 0
+
+
+@pytest.mark.docker
+class TestDockerContainer:
+    def test_health_endpoint(self, docker_container):
+        """Container health endpoint returns ok."""
+        resp = httpx.get(f"{docker_container}/health", timeout=5.0)
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+
+    def test_api_health_endpoint(self, docker_container):
+        """Versioned API health endpoint returns ok."""
+        resp = httpx.get(f"{docker_container}/api/v1/health", timeout=5.0)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["version"] == "v1"
+
+    def test_tasks_endpoint_registered(self, docker_container):
+        """GET /api/v1/tasks route is accessible (will fail upstream but route exists)."""
+        resp = httpx.get(f"{docker_container}/api/v1/tasks", timeout=5.0)
+        assert resp.status_code in (200, 500, 502)
+
+    def test_task_lists_endpoint_registered(self, docker_container):
+        """GET /api/v1/tasks/lists route is accessible."""
+        resp = httpx.get(f"{docker_container}/api/v1/tasks/lists", timeout=5.0)
+        assert resp.status_code in (200, 500, 502)
+
+    def test_topics_endpoint_registered(self, docker_container):
+        """GET /api/v1/topics route is accessible."""
+        resp = httpx.get(f"{docker_container}/api/v1/topics", timeout=5.0)
+        assert resp.status_code in (200, 500, 502)
+
+    def test_summaries_endpoint_registered(self, docker_container):
+        """GET /api/v1/summaries route is accessible."""
+        resp = httpx.get(f"{docker_container}/api/v1/summaries", timeout=5.0)
+        assert resp.status_code in (200, 500, 502)
+
+    def test_ingestion_auth_endpoint_registered(self, docker_container):
+        """GET /api/v1/ingest/auth/url/gmail route is accessible."""
+        resp = httpx.get(f"{docker_container}/api/v1/ingest/auth/url/gmail", timeout=5.0)
+        assert resp.status_code in (200, 500, 502)
+
+    def test_openapi_docs_available(self, docker_container):
+        """OpenAPI schema is served with the correct title."""
+        resp = httpx.get(f"{docker_container}/openapi.json", timeout=5.0)
+        assert resp.status_code == 200
+        assert resp.json()["info"]["title"] == "mail-manager BFF"
+
+    def test_cors_headers_present(self, docker_container):
+        """CORS headers are set for allowed origins."""
+        resp = httpx.options(
+            f"{docker_container}/api/v1/health",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "GET",
+            },
+            timeout=5.0,
+        )
+        assert resp.status_code == 200
+        assert "access-control-allow-origin" in resp.headers
