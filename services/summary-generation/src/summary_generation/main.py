@@ -4,6 +4,10 @@ from collections.abc import AsyncIterator
 import structlog
 from fastapi import FastAPI
 
+from summary_generation.events import close_redis
+from summary_generation.repository import close_pool
+from summary_generation.router import router
+
 logger = structlog.get_logger()
 
 
@@ -18,9 +22,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     logger.info("summary-generation service started")
     yield
+    await close_pool()
+    await close_redis()
+    logger.info("summary-generation service stopped")
 
 
 app = FastAPI(title="Summary Generation Service", version="0.1.0", lifespan=lifespan)
+app.include_router(router)
 
 
 @app.get("/health")
