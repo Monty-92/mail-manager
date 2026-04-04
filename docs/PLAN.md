@@ -52,11 +52,16 @@ mail-manager is a modular email-intelligence and personal productivity engine. I
 
 ### C2. Preprocessing Service
 *Next priority. Depends on: C1 complete.*
-1. Subscribe to `mailmanager.email.new` Redis events
-2. Text cleaning and normalization
-3. Generate embeddings via Ollama (`nomic-embed-text`)
-4. Store embeddings in pgvector column (`vector(768)`)
-5. Update relational links
+1. Subscribe to `mailmanager.email.new` Redis events (background listener)
+2. Text cleaning and normalization (strip signatures, disclaimers, quoted replies)
+3. Generate embeddings via Ollama (`nomic-embed-text`) using httpx
+4. Store embeddings in pgvector column (`vector(768)`) via asyncpg
+5. Publish `mailmanager.email.preprocessed` event to Redis
+6. HTTP trigger endpoint: `POST /preprocess/{email_id}` for on-demand reprocessing
+7. Tests:
+   - **Unit tests**: cleaner logic, embedding client (mocked Ollama), schemas, repository
+   - **Docker container tests**: build verification, health check in container, end-to-end
+     preprocessing with mocked Ollama/Postgres/Redis (testcontainers or compose override)
 
 ### C3. LLM Analysis Service
 1. Consume preprocessed emails
