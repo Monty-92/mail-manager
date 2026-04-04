@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     service_name: str = "bff"
     database_url: str = "postgresql+asyncpg://mailmanager:mailmanager_dev@postgres:5432/mailmanager"
     redis_url: str = "redis://redis:6379/0"
+    jwt_secret: str = "change-me-in-production"
     ingestion_url: str = "http://ingestion:8001"
     preprocessing_url: str = "http://preprocessing:8002"
     llm_analysis_url: str = "http://llm-analysis:8003"

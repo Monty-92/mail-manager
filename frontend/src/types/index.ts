@@ -147,7 +147,7 @@ export interface CalendarAttendee {
 export interface CalendarSource {
   id: string
   provider: 'google' | 'outlook'
-  account: string
+  account_email: string
   calendar_name: string
   color: string
   enabled: boolean
@@ -216,7 +216,8 @@ export interface PaginationParams {
 // ─── Ingestion Types ───
 
 export interface AuthUrlResponse {
-  url: string
+  auth_url: string
+  provider: string
 }
 
 export interface SyncResponse {
@@ -228,4 +229,16 @@ export interface FetchResponse {
   fetched: number
   provider: string
   next_page_token: string | null
+}
+
+// ─── Connected Account Types ───
+
+export interface ConnectedAccount {
+  id: string
+  provider: 'gmail' | 'outlook'
+  email: string
+  display_name: string
+  scopes: string[]
+  created_at: string
+  updated_at: string
 }

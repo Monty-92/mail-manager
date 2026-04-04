@@ -11,6 +11,10 @@ dependencies = [
     "asyncpg>=0.30.0",
     "httpx>=0.28.0",
     "redis[hiredis]>=5.2.0",
+    "pyjwt>=2.9.0",
+    "passlib[bcrypt]>=1.7.4",
+    "pyotp>=2.9.0",
+    "qrcode[pil]>=8.0",
 ]
 
 [build-system]

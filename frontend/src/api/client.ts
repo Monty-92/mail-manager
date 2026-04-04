@@ -1,6 +1,7 @@
 import type { ApiError } from '@/types'
 
 const API_BASE = '/api/v1'
+const TOKEN_KEY = 'mm_auth_token'
 
 class ApiClient {
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -10,7 +11,20 @@ class ApiClient {
       ...((options.headers as Record<string, string>) ?? {}),
     }
 
+    const token = localStorage.getItem(TOKEN_KEY)
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+
     const response = await fetch(url, { ...options, headers })
+
+    if (response.status === 401) {
+      const currentPath = window.location.pathname
+      if (currentPath !== '/login' && currentPath !== '/setup') {
+        localStorage.removeItem(TOKEN_KEY)
+        window.location.href = '/login'
+      }
+    }
 
     if (!response.ok) {
       let detail = `HTTP ${response.status}`

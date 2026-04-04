@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
   CalendarDaysIcon,
   EyeIcon,
   EyeSlashIcon,
+  ArrowPathIcon,
 } from '@heroicons/vue/24/outline'
+import { getCalendarEvents, getCalendarSources, syncCalendar } from '@/api/calendar'
 import type { CalendarEvent, CalendarSource } from '@/types'
 import BaseCard from '@/components/ui/BaseCard.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
@@ -16,9 +18,45 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 const currentDate = ref(new Date())
 const viewMode = ref<'month' | 'week' | 'day'>('month')
 
-// Placeholder: no calendar sync service yet
 const events = ref<CalendarEvent[]>([])
 const calendarSources = ref<CalendarSource[]>([])
+const syncing = ref(false)
+
+onMounted(async () => {
+  await Promise.all([loadEvents(), loadSources()])
+})
+
+async function loadEvents() {
+  try {
+    const now = new Date()
+    const start = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const end = new Date(now.getFullYear(), now.getMonth() + 3, 0)
+    events.value = await getCalendarEvents({
+      start_after: start.toISOString(),
+      end_before: end.toISOString(),
+    })
+  } catch {
+    // No events or service unavailable
+  }
+}
+
+async function loadSources() {
+  try {
+    calendarSources.value = await getCalendarSources()
+  } catch {
+    // No sources
+  }
+}
+
+async function handleSync() {
+  syncing.value = true
+  try {
+    await syncCalendar()
+    await loadEvents()
+  } finally {
+    syncing.value = false
+  }
+}
 
 const monthNames = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -164,6 +202,10 @@ function providerColor(provider: string): string {
             </button>
           </div>
           <BaseButton variant="ghost" size="sm" @click="goToToday">Today</BaseButton>
+          <BaseButton variant="ghost" size="sm" :disabled="syncing" @click="handleSync">
+            <ArrowPathIcon class="h-4 w-4" :class="{ 'animate-spin': syncing }" />
+            Sync
+          </BaseButton>
         </div>
 
         <div class="flex rounded-lg border" :style="{ borderColor: 'var(--color-border)' }">
