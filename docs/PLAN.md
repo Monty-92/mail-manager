@@ -12,8 +12,9 @@ mail-manager is a modular email-intelligence and personal productivity engine. I
 - **Phase B (Repo scaffold)**: ✅ DONE — all 7 services + frontend scaffolded, tests passing
 - **Scope expansion (B-patch)**: ✅ DONE — multi-provider schema, calendar-sync service, enhanced tasks, living docs updated
 - **Phase C1 (Ingestion Service)**: ✅ DONE — full implementation with Gmail + Outlook providers, 35 tests passing
-- **Phase C2 (Preprocessing)**: NOT STARTED
-- **Phase C3–C8**: NOT STARTED
+- **Phase C2 (Preprocessing)**: ✅ DONE — text cleaning, Ollama embeddings, Redis pipeline, 40 tests passing
+- **Phase C3 (LLM Analysis)**: ✅ DONE — email categorization, urgency, action items, sentiment via Ollama, 39 tests passing
+- **Phase C4–C8**: NOT STARTED
 
 ---
 
@@ -63,11 +64,20 @@ mail-manager is a modular email-intelligence and personal productivity engine. I
    - **Docker container tests**: build verification, health check in container, end-to-end
      preprocessing with mocked Ollama/Postgres/Redis (testcontainers or compose override)
 
-### C3. LLM Analysis Service
-1. Consume preprocessed emails
-2. Categorization, urgency detection, action item extraction
-3. Store analysis results
-4. Trigger downstream events
+### C3. LLM Analysis Service ✅ DONE
+*Implementation complete with 39 passing tests.*
+1. Subscribe to `mailmanager.email.preprocessed` Redis events (background listener)
+2. Ollama LLM client — `/api/chat` with structured JSON prompts, `llama3.1:8b` model
+3. Email categorization (8 categories), urgency detection (5 levels), sentiment analysis
+4. Action item extraction with assignee and due hints
+5. Key topic extraction (up to 5 per email)
+6. Junk/spam classification with confidence scoring
+7. Robust LLM response parsing with safe fallbacks for invalid/missing fields
+8. asyncpg repository — store/retrieve analyses, find unanalyzed emails (LEFT JOIN)
+9. Publish `mailmanager.email.analyzed` events to Redis
+10. HTTP endpoints: `POST /analyze/{email_id}`, `POST /analyze/batch`, `GET /analyze/{email_id}`
+11. Migration: `002_email_analyses.sql` — analysis results table with indexes
+12. Tests: schemas (11), LLM client (3), analyzer (14), router (5), Docker (6)
 
 ### C4. Topic Tracking Service
 1. Topic detection and clustering
