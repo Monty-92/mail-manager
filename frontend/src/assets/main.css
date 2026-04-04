@@ -1,3 +1,116 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-border-hover);
+  }
+}
+
+@layer components {
+  /* Markdown content rendering */
+  .prose-theme h1 {
+    @apply text-2xl font-bold mb-4;
+    color: var(--color-text-primary);
+  }
+
+  .prose-theme h2 {
+    @apply text-xl font-semibold mb-3;
+    color: var(--color-text-primary);
+  }
+
+  .prose-theme h3 {
+    @apply text-lg font-medium mb-2;
+    color: var(--color-text-primary);
+  }
+
+  .prose-theme p {
+    @apply mb-3 leading-relaxed;
+    color: var(--color-text-secondary);
+  }
+
+  .prose-theme ul,
+  .prose-theme ol {
+    @apply mb-3 pl-6;
+    color: var(--color-text-secondary);
+  }
+
+  .prose-theme li {
+    @apply mb-1;
+  }
+
+  .prose-theme ul {
+    list-style-type: disc;
+  }
+
+  .prose-theme ol {
+    list-style-type: decimal;
+  }
+
+  .prose-theme code {
+    @apply text-sm px-1.5 py-0.5 rounded font-mono;
+    background-color: var(--color-bg-tertiary);
+    color: var(--color-primary);
+  }
+
+  .prose-theme pre {
+    @apply mb-3 p-4 rounded-lg overflow-x-auto;
+    background-color: var(--color-bg-tertiary);
+  }
+
+  .prose-theme pre code {
+    @apply p-0 bg-transparent;
+  }
+
+  .prose-theme blockquote {
+    @apply pl-4 mb-3 italic;
+    border-left: 3px solid var(--color-primary);
+    color: var(--color-text-muted);
+  }
+
+  .prose-theme a {
+    color: var(--color-primary);
+    @apply underline underline-offset-2;
+  }
+
+  .prose-theme a:hover {
+    color: var(--color-primary-hover);
+  }
+
+  .prose-theme hr {
+    @apply my-6;
+    border-color: var(--color-border);
+  }
+}
