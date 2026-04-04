@@ -23,6 +23,7 @@ description: "Review and update GitHub Copilot customization files when conventi
 | `.github/instructions/docker.instructions.md` | Docker conventions | Docker setup, base images, or build patterns change |
 | `.github/instructions/sql.instructions.md` | SQL/migration rules | DB schema patterns or pgvector usage changes |
 | `.github/instructions/docs.instructions.md` | Documentation rules | Doc structure or formatting conventions change |
+| `.github/instructions/git.instructions.md` | Git workflow rules | Branch, commit, PR, or merge conventions change |
 | `.github/skills/*/SKILL.md` | On-demand workflows | Workflow steps or tooling changes |
 | `.github/agents/*.agent.md` | Custom agent definitions | Agent roles or tool needs change |
 

@@ -72,6 +72,20 @@ mail-manager is a modular email-intelligence and personal productivity engine. S
 | Run frontend dev | `cd frontend && npm run dev` |
 | Lint Python | `cd services/<name> && uv run ruff check .` |
 | Lint frontend | `cd frontend && npm run lint` |
+| Create feature branch | `git checkout main && git pull && git checkout -b type/description` |
+| Open PR | `gh pr create --title "type(scope): subject" --body "..."` |
+| Merge PR (rebase) | `gh pr merge --rebase --delete-branch` |
+| Clean up after merge | `git checkout main && git pull && git branch -d type/description` |
+
+## Git Workflow
+
+- **Branches**: all work on feature branches, never commit directly to `main`
+- **Branch naming**: `type/description` (e.g., `feat/add-preprocessing-service`, `fix/oauth-refresh`)
+- **Commits**: [Conventional Commits](https://www.conventionalcommits.org/) required — prefixes: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `style`, `build`, `perf`, `ci`
+- **PRs**: all changes reach `main` through pull requests with descriptive bodies
+- **Merge strategy**: rebase and merge only (linear history, no merge commits)
+- **Agent behavior**: proactively prompt user to commit/push at natural breakpoints (tests passing, phase complete, before context switch)
+- See `.github/instructions/git.instructions.md` for full details
 
 ## Conventions
 
