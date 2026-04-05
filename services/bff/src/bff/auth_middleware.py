@@ -18,7 +18,9 @@ PUBLIC_PATHS = {
     "/api/v1/health",
     "/api/v1/auth/setup-status",
     "/api/v1/auth/setup",
+    "/api/v1/auth/setup-qr",
     "/api/v1/auth/login",
+    "/api/v1/auth/verify-totp",
 }
 
 

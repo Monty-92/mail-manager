@@ -62,7 +62,12 @@ router.beforeEach(async (to) => {
 
   // Check if setup is needed
   if (auth.isSetupComplete === null) {
-    await auth.checkSetupStatus();
+    try {
+      await auth.checkSetupStatus();
+    } catch {
+      // API unreachable — allow navigation so the app isn't stuck
+      return true;
+    }
   }
 
   if (!auth.isSetupComplete) {

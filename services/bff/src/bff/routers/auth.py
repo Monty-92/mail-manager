@@ -3,6 +3,7 @@
 import io
 from datetime import datetime, timezone, timedelta
 
+import bcrypt
 import jwt
 import pyotp
 import qrcode
@@ -10,7 +11,6 @@ import qrcode.constants
 import structlog
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from passlib.hash import bcrypt
 from pydantic import BaseModel, Field
 
 from bff.auth_repository import create_user, get_user_by_username, get_user_count
@@ -41,10 +41,19 @@ class SetupResponse(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
-    totp_code: str = Field(min_length=6, max_length=6)
 
 
 class LoginResponse(BaseModel):
+    requires_totp: bool = True
+    challenge_token: str
+
+
+class TotpVerifyRequest(BaseModel):
+    challenge_token: str
+    totp_code: str = Field(min_length=6, max_length=6)
+
+
+class TotpVerifyResponse(BaseModel):
     token: str
     username: str
 
@@ -71,7 +80,7 @@ async def setup(req: SetupRequest) -> SetupResponse:
     if count > 0:
         raise HTTPException(status_code=409, detail="Setup already completed")
 
-    password_hash = bcrypt.hash(req.password)
+    password_hash = bcrypt.hashpw(req.password.encode(), bcrypt.gensalt()).decode()
     totp_secret = pyotp.random_base32()
     totp_uri = pyotp.TOTP(totp_secret).provisioning_uri(name=req.username, issuer_name="mail-manager")
 
@@ -94,32 +103,64 @@ async def setup_qr(username: str, secret: str) -> StreamingResponse:
 
 @router.post("/login")
 async def login(req: LoginRequest) -> LoginResponse:
-    """Authenticate with username, password, and TOTP code. Returns a JWT."""
+    """Step 1: Validate username + password. Returns a short-lived challenge token for TOTP."""
     user = await get_user_by_username(req.username)
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    if not bcrypt.verify(req.password, user["password_hash"]):
+    if not bcrypt.checkpw(req.password.encode(), user["password_hash"].encode()):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if not user.get("totp_secret"):
         raise HTTPException(status_code=401, detail="TOTP not configured")
+
+    # Issue a short-lived challenge token (5 min) that only grants TOTP verification
+    now = datetime.now(tz=timezone.utc)
+    challenge_payload = {
+        "sub": str(user["id"]),
+        "username": user["username"],
+        "purpose": "totp_challenge",
+        "iat": now,
+        "exp": now + timedelta(minutes=5),
+    }
+    challenge_token = jwt.encode(challenge_payload, settings.jwt_secret, algorithm="HS256")
+    logger.info("credentials verified, totp challenge issued", username=req.username)
+
+    return LoginResponse(requires_totp=True, challenge_token=challenge_token)
+
+
+@router.post("/verify-totp")
+async def verify_totp(req: TotpVerifyRequest) -> TotpVerifyResponse:
+    """Step 2: Verify TOTP code using the challenge token. Returns a full session JWT."""
+    try:
+        payload = jwt.decode(req.challenge_token, settings.jwt_secret, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Challenge expired, please log in again")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid challenge token")
+
+    if payload.get("purpose") != "totp_challenge":
+        raise HTTPException(status_code=401, detail="Invalid challenge token")
+
+    user = await get_user_by_username(payload["username"])
+    if user is None or not user.get("totp_secret"):
+        raise HTTPException(status_code=401, detail="Invalid challenge token")
 
     totp = pyotp.TOTP(user["totp_secret"])
     if not totp.verify(req.totp_code, valid_window=1):
         raise HTTPException(status_code=401, detail="Invalid TOTP code")
 
     now = datetime.now(tz=timezone.utc)
-    payload = {
+    session_payload = {
         "sub": str(user["id"]),
         "username": user["username"],
         "iat": now,
         "exp": now + timedelta(hours=24),
     }
-    token = jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
-    logger.info("user logged in", username=req.username)
+    token = jwt.encode(session_payload, settings.jwt_secret, algorithm="HS256")
+    logger.info("user logged in", username=payload["username"])
 
-    return LoginResponse(token=token, username=user["username"])
+    return TotpVerifyResponse(token=token, username=user["username"])
 
 
 @router.get("/me")
