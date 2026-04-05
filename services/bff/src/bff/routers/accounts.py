@@ -2,6 +2,7 @@
 
 from uuid import UUID
 
+import httpx
 import structlog
 from fastapi import APIRouter, HTTPException, Query
 
@@ -13,13 +14,21 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/accounts", tags=["accounts"])
 
 
+def _extract_detail(resp: httpx.Response) -> str:
+    """Extract error detail from an upstream response, handling non-JSON bodies."""
+    try:
+        return resp.json().get("detail", f"Upstream error (HTTP {resp.status_code})")
+    except Exception:
+        return resp.text or f"Upstream error (HTTP {resp.status_code})"
+
+
 @router.get("")
 async def list_accounts() -> list[dict]:
     """List all connected accounts."""
     client = await get_client()
     resp = await client.get(f"{settings.ingestion_url}/ingest/accounts")
     if resp.status_code != 200:
-        raise HTTPException(status_code=resp.status_code, detail=resp.json().get("detail", "upstream error"))
+        raise HTTPException(status_code=resp.status_code, detail=_extract_detail(resp))
     return resp.json()
 
 
@@ -29,7 +38,7 @@ async def disconnect_account(account_id: UUID) -> dict:
     client = await get_client()
     resp = await client.delete(f"{settings.ingestion_url}/ingest/accounts/{account_id}")
     if resp.status_code != 200:
-        raise HTTPException(status_code=resp.status_code, detail=resp.json().get("detail", "upstream error"))
+        raise HTTPException(status_code=resp.status_code, detail=_extract_detail(resp))
     return resp.json()
 
 
@@ -39,7 +48,7 @@ async def get_auth_url(provider: str) -> dict:
     client = await get_client()
     resp = await client.get(f"{settings.ingestion_url}/ingest/auth/url/{provider}")
     if resp.status_code != 200:
-        raise HTTPException(status_code=resp.status_code, detail=resp.json().get("detail", "upstream error"))
+        raise HTTPException(status_code=resp.status_code, detail=_extract_detail(resp))
     return resp.json()
 
 
@@ -49,7 +58,7 @@ async def auth_callback(body: dict) -> dict:
     client = await get_client()
     resp = await client.post(f"{settings.ingestion_url}/ingest/auth/callback", json=body)
     if resp.status_code != 200:
-        raise HTTPException(status_code=resp.status_code, detail=resp.json().get("detail", "upstream error"))
+        raise HTTPException(status_code=resp.status_code, detail=_extract_detail(resp))
     return resp.json()
 
 
@@ -59,7 +68,7 @@ async def start_device_flow(provider: str) -> dict:
     client = await get_client()
     resp = await client.post(f"{settings.ingestion_url}/ingest/auth/device/{provider}")
     if resp.status_code != 200:
-        raise HTTPException(status_code=resp.status_code, detail=resp.json().get("detail", "upstream error"))
+        raise HTTPException(status_code=resp.status_code, detail=_extract_detail(resp))
     return resp.json()
 
 
@@ -72,5 +81,5 @@ async def poll_device_flow(provider: str, device_code: str = Query(...)) -> dict
         params={"device_code": device_code},
     )
     if resp.status_code != 200:
-        raise HTTPException(status_code=resp.status_code, detail=resp.json().get("detail", "upstream error"))
+        raise HTTPException(status_code=resp.status_code, detail=_extract_detail(resp))
     return resp.json()

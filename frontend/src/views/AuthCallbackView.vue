@@ -26,7 +26,7 @@ onMounted(async () => {
   const provider = (route.query.provider as string) || detectProvider()
 
   try {
-    await accountStore.handleCallback(code, provider)
+    await accountStore.handleCallback(code, provider, state)
     status.value = 'success'
     setTimeout(() => {
       router.replace({ name: 'settings' })

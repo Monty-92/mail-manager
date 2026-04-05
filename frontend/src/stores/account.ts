@@ -32,8 +32,8 @@ export const useAccountStore = defineStore('account', () => {
     window.location.href = resp.auth_url
   }
 
-  async function handleCallback(code: string, provider: string): Promise<void> {
-    await apiAuthCallback(code, provider)
+  async function handleCallback(code: string, provider: string, state?: string): Promise<void> {
+    await apiAuthCallback(code, provider, state)
     await fetchAccounts()
   }
 

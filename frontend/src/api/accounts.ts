@@ -48,8 +48,8 @@ export async function getAuthUrl(provider: string): Promise<AuthUrlResponse> {
   return api.get<AuthUrlResponse>(`/accounts/auth/url/${provider}`)
 }
 
-export async function authCallback(code: string, provider: string): Promise<AuthCallbackResponse> {
-  return api.post<AuthCallbackResponse>('/accounts/auth/callback', { code, provider })
+export async function authCallback(code: string, provider: string, state?: string): Promise<AuthCallbackResponse> {
+  return api.post<AuthCallbackResponse>('/accounts/auth/callback', { code, provider, state })
 }
 
 export async function startDeviceFlow(provider: string): Promise<DeviceFlowStartResponse> {

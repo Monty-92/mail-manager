@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { setupAccount, getSetupQrUrl } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
@@ -20,6 +20,7 @@ const qrUrl = ref('')
 const totpCode = ref('')
 const error = ref('')
 const loading = ref(false)
+const totpInput = ref<InstanceType<typeof BaseInput> | null>(null)
 
 onMounted(async () => {
   const done = await authStore.checkSetupStatus()
@@ -44,6 +45,8 @@ async function handleSetup() {
     totpSecret.value = match ? match[1] : ''
     qrUrl.value = getSetupQrUrl(resp.username, totpSecret.value)
     step.value = 'totp'
+    await nextTick()
+    totpInput.value?.$el?.querySelector('input')?.focus()
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : 'Setup failed'
   } finally {
@@ -85,7 +88,7 @@ async function handleVerify() {
             <label class="mb-1.5 block text-xs font-medium" :style="{ color: 'var(--color-text-secondary)' }">
               Username
             </label>
-            <BaseInput v-model="username" placeholder="admin" required />
+            <BaseInput v-model="username" placeholder="admin" required autofocus />
           </div>
           <div>
             <label class="mb-1.5 block text-xs font-medium" :style="{ color: 'var(--color-text-secondary)' }">
@@ -134,6 +137,7 @@ async function handleVerify() {
               Enter the 6-digit code from your authenticator
             </label>
             <BaseInput
+              ref="totpInput"
               v-model="totpCode"
               placeholder="000000"
               maxlength="6"

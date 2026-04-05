@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import BaseCard from '@/components/ui/BaseCard.vue'
@@ -15,6 +15,8 @@ const password = ref('')
 const totpCode = ref('')
 const error = ref('')
 const loading = ref(false)
+const usernameInput = ref<InstanceType<typeof BaseInput> | null>(null)
+const totpInput = ref<InstanceType<typeof BaseInput> | null>(null)
 
 async function handleCredentials() {
   error.value = ''
@@ -25,6 +27,8 @@ async function handleCredentials() {
       password: password.value,
     })
     step.value = 'totp'
+    await nextTick()
+    totpInput.value?.$el?.querySelector('input')?.focus()
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : 'Login failed'
   } finally {
@@ -71,7 +75,7 @@ function backToCredentials() {
             <label class="mb-1.5 block text-xs font-medium" :style="{ color: 'var(--color-text-secondary)' }">
               Username
             </label>
-            <BaseInput v-model="username" placeholder="Username" required />
+            <BaseInput ref="usernameInput" v-model="username" placeholder="Username" required autofocus />
           </div>
           <div>
             <label class="mb-1.5 block text-xs font-medium" :style="{ color: 'var(--color-text-secondary)' }">
@@ -100,12 +104,12 @@ function backToCredentials() {
         <form class="space-y-4" @submit.prevent="handleTotp">
           <div>
             <BaseInput
+              ref="totpInput"
               v-model="totpCode"
               placeholder="000000"
               maxlength="6"
               class="text-center text-lg tracking-widest"
               required
-              autofocus
             />
           </div>
           <p v-if="error" class="text-sm" :style="{ color: 'var(--color-error)' }">{{ error }}</p>

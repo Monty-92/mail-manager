@@ -30,14 +30,18 @@ class OutlookProvider(BaseEmailProvider):
     def provider(self) -> EmailProvider:
         return EmailProvider.OUTLOOK
 
-    def get_auth_url(self) -> str:
-        result = self._msal_app.get_authorization_request_url(
-            scopes=SCOPES,
-            redirect_uri=settings.ms_redirect_uri,
-        )
-        return result
+    def get_auth_url(self, state: str | None = None) -> tuple[str, str | None]:
+        """Return (auth_url, code_verifier) tuple. MSAL handles PKCE internally, so code_verifier is None."""
+        kwargs: dict = {
+            "scopes": SCOPES,
+            "redirect_uri": settings.ms_redirect_uri,
+        }
+        if state:
+            kwargs["state"] = state
+        result = self._msal_app.get_authorization_request_url(**kwargs)
+        return result, None
 
-    async def authenticate(self, auth_code: str | None = None) -> OAuthTokens:
+    async def authenticate(self, auth_code: str | None = None, code_verifier: str | None = None) -> OAuthTokens:
         if auth_code:
             result = self._msal_app.acquire_token_by_authorization_code(
                 code=auth_code,
