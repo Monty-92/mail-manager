@@ -34,6 +34,8 @@ class GoogleCalendarProvider(BaseCalendarProvider):
         async with httpx.AsyncClient() as client:
             while url:
                 resp = await client.get(url, headers=self._headers(), params=params, timeout=30.0)
+                if not resp.is_success:
+                    logger.error("google calendar api error", status=resp.status_code, body=resp.text[:500])
                 resp.raise_for_status()
                 data = resp.json()
 

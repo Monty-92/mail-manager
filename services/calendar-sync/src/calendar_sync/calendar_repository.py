@@ -53,6 +53,17 @@ async def get_calendar_account(account_id: str) -> dict | None:
     return dict(row) if row else None
 
 
+async def update_account_token(account_id: str, access_token: str, token_expiry: datetime | None) -> None:
+    """Persist a refreshed access token and expiry for a connected account."""
+    pool = await get_pool()
+    await pool.execute(
+        "UPDATE connected_accounts SET access_token = $1, token_expiry = $2 WHERE id = $3",
+        access_token,
+        token_expiry,
+        account_id,
+    )
+
+
 async def upsert_calendar_event(
     provider: str,
     external_id: str,

@@ -123,6 +123,9 @@ onMounted(async () => {
             class="prose-theme text-sm"
             v-html="renderMarkdown(todayMorning.markdown_body)"
           />
+          <div v-else-if="summaryStore.error" class="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
+            {{ summaryStore.error }}
+          </div>
           <EmptyState v-else message="No morning summary yet for today." />
         </BaseCard>
 
@@ -149,6 +152,9 @@ onMounted(async () => {
             class="prose-theme text-sm"
             v-html="renderMarkdown(todayEvening.markdown_body)"
           />
+          <div v-else-if="summaryStore.error" class="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
+            {{ summaryStore.error }}
+          </div>
           <EmptyState v-else message="No evening summary yet for today." />
         </BaseCard>
       </div>
