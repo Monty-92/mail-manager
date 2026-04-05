@@ -17,10 +17,19 @@ export interface SetupResponse {
 export interface LoginRequest {
   username: string
   password: string
-  totp_code: string
 }
 
 export interface LoginResponse {
+  requires_totp: boolean
+  challenge_token: string
+}
+
+export interface TotpVerifyRequest {
+  challenge_token: string
+  totp_code: string
+}
+
+export interface TotpVerifyResponse {
   token: string
   username: string
 }
@@ -40,6 +49,10 @@ export async function setupAccount(req: SetupRequest): Promise<SetupResponse> {
 
 export async function login(req: LoginRequest): Promise<LoginResponse> {
   return api.post<LoginResponse>('/auth/login', req)
+}
+
+export async function verifyTotp(req: TotpVerifyRequest): Promise<TotpVerifyResponse> {
+  return api.post<TotpVerifyResponse>('/auth/verify-totp', req)
 }
 
 export async function getMe(): Promise<MeResponse> {

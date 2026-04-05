@@ -58,8 +58,9 @@ async function handleVerify() {
     await authStore.login({
       username: username.value,
       password: password.value,
-      totp_code: totpCode.value,
     })
+    await authStore.verifyTotp(totpCode.value)
+    authStore.isSetupComplete = true
     router.replace({ name: 'dashboard' })
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : 'Verification failed'
