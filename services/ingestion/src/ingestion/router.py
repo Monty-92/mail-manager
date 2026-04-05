@@ -3,7 +3,7 @@ from uuid import UUID
 
 import httpx
 import structlog
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 
 from ingestion.account_repository import (
@@ -19,7 +19,7 @@ from ingestion.providers import BaseEmailProvider
 from ingestion.providers.gmail import GmailProvider
 from ingestion.providers.outlook import OutlookProvider
 from ingestion.publisher import publish_new_email
-from ingestion.repository import get_sync_state, save_sync_state, upsert_email
+from ingestion.repository import get_email_by_id, get_sync_state, list_emails, save_sync_state, upsert_email
 from ingestion.schemas import EmailProvider as EP
 from ingestion.schemas import IngestResult, OAuthTokens
 
@@ -101,7 +101,7 @@ async def get_auth_url(provider: EP) -> AuthUrlResponse:
 
 
 @router.post("/auth/callback")
-async def auth_callback(req: AuthCallbackRequest) -> AuthCallbackResponse:
+async def auth_callback(req: AuthCallbackRequest, background_tasks: BackgroundTasks) -> AuthCallbackResponse:
     """Exchange an OAuth authorization code for tokens and save the account."""
     adapter = _make_provider(req.provider)
 
@@ -141,7 +141,59 @@ async def auth_callback(req: AuthCallbackRequest) -> AuthCallbackResponse:
     )
 
     logger.info("account connected", provider=req.provider.value, email=email)
+
+    # Trigger an initial email sync in the background
+    background_tasks.add_task(_run_sync_for_provider, req.provider)
+
     return AuthCallbackResponse(provider=req.provider.value, email=email, account_id=str(account["id"]))
+
+
+async def _run_sync_for_provider(provider: EP) -> IngestResult:
+    """Run an incremental sync for all accounts of a provider. Shared logic for endpoints and background tasks."""
+    accounts = await get_accounts_by_provider(provider.value)
+    if not accounts:
+        logger.warning("sync skipped: no accounts", provider=provider.value)
+        return IngestResult(provider=provider)
+
+    result = IngestResult(provider=provider)
+
+    for acct in accounts:
+        tokens = OAuthTokens(
+            access_token=acct["access_token"],
+            refresh_token=acct["refresh_token"],
+            token_expiry=acct["token_expiry"],
+        )
+        adapter = _make_provider(provider, tokens)
+        await adapter.authenticate()
+
+        state = await get_sync_state(provider)
+        since_token = state.get("history_id") if provider == EP.GMAIL else state.get("delta_link")
+        raw_emails, new_sync_token = await adapter.fetch_new_emails(since_token=since_token)
+        result.total_fetched += len(raw_emails)
+
+        for raw in raw_emails:
+            markdown_body = email_body_to_markdown(raw.html_body, raw.text_body)
+            stored = await upsert_email(raw, markdown_body)
+            if stored:
+                result.new_stored += 1
+                await publish_new_email(stored)
+            else:
+                result.duplicates_skipped += 1
+
+        if new_sync_token:
+            if provider == EP.GMAIL:
+                await save_sync_state(provider, history_id=new_sync_token)
+            else:
+                await save_sync_state(provider, delta_link=new_sync_token)
+
+    logger.info(
+        "sync completed",
+        provider=provider.value,
+        fetched=result.total_fetched,
+        new=result.new_stored,
+        duplicates=result.duplicates_skipped,
+    )
+    return result
 
 
 # ─── Device Authorization Flow ───
@@ -317,46 +369,7 @@ async def sync_emails(provider: EP, max_results: int = Query(100, ge=1, le=500))
     accounts = await get_accounts_by_provider(provider.value)
     if not accounts:
         raise HTTPException(status_code=401, detail=f"No accounts connected for {provider.value}. Connect an account first.")
-
-    result = IngestResult(provider=provider)
-
-    for acct in accounts:
-        tokens = OAuthTokens(
-            access_token=acct["access_token"],
-            refresh_token=acct["refresh_token"],
-            token_expiry=acct["token_expiry"],
-        )
-        adapter = _make_provider(provider, tokens)
-        await adapter.authenticate()
-
-        state = await get_sync_state(provider)
-        since_token = state.get("history_id") if provider == EP.GMAIL else state.get("delta_link")
-        raw_emails, new_sync_token = await adapter.fetch_new_emails(since_token=since_token)
-        result.total_fetched += len(raw_emails)
-
-        for raw in raw_emails:
-            markdown_body = email_body_to_markdown(raw.html_body, raw.text_body)
-            stored = await upsert_email(raw, markdown_body)
-            if stored:
-                result.new_stored += 1
-                await publish_new_email(stored)
-            else:
-                result.duplicates_skipped += 1
-
-        if new_sync_token:
-            if provider == EP.GMAIL:
-                await save_sync_state(provider, history_id=new_sync_token)
-            else:
-                await save_sync_state(provider, delta_link=new_sync_token)
-
-    logger.info(
-        "sync completed",
-        provider=provider.value,
-        fetched=result.total_fetched,
-        new=result.new_stored,
-        duplicates=result.duplicates_skipped,
-    )
-    return result
+    return await _run_sync_for_provider(provider)
 
 
 @router.post("/fetch/{provider}")
@@ -401,6 +414,42 @@ async def fetch_emails(
         duplicates=result.duplicates_skipped,
     )
     return result
+
+
+# ─── Email Browsing ───
+
+
+class EmailListResponse(BaseModel):
+    emails: list[dict]
+    total: int
+    limit: int
+    offset: int
+
+
+@router.get("/emails")
+async def get_emails(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    provider: str | None = Query(None),
+    search: str | None = Query(None),
+) -> EmailListResponse:
+    """List stored emails with pagination, optional provider filter, and text search."""
+    emails, total = await list_emails(limit=limit, offset=offset, provider=provider, search=search)
+    return EmailListResponse(
+        emails=[e.model_dump(mode="json") for e in emails],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/emails/{email_id}")
+async def get_email(email_id: str) -> dict:
+    """Get a single email by ID."""
+    email = await get_email_by_id(email_id)
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+    return email.model_dump(mode="json")
 
 
 # ─── Helpers ───

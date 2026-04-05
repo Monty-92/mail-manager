@@ -65,13 +65,15 @@ mail-manager is a modular email-intelligence and personal productivity engine. S
 
 | Task | Command |
 |------|---------|
-| Start full stack | `docker compose up` |
+| Start full stack | `make up` or `docker compose up` |
+| Start in background | `make up-d` |
+| Stop all services | `make down` |
+| Run migrations | `make migrate` |
+| Run all tests | `make test` |
+| Test one service | `make test-svc svc=<name>` |
+| Lint all | `make lint` |
 | Start specific service | `docker compose up <service-name>` |
-| Run migrations | `docker compose exec postgres psql -U mailmanager -d mailmanager -f /migrations/<file>.sql` |
-| Run Python tests | `cd services/<name> && uv run pytest` |
 | Run frontend dev | `cd frontend && npm run dev` |
-| Lint Python | `cd services/<name> && uv run ruff check .` |
-| Lint frontend | `cd frontend && npm run lint` |
 | Create feature branch | `git checkout main && git pull && git checkout -b type/description` |
 | Open PR | `gh pr create --title "type(scope): subject" --body "..."` |
 | Merge PR (rebase) | `gh pr merge --rebase --delete-branch` |
@@ -95,6 +97,16 @@ mail-manager is a modular email-intelligence and personal productivity engine. S
 - Redis channels: `mailmanager.<event_name>` (e.g., `mailmanager.email.new`)
 - API responses: always return JSON with consistent error shape `{"detail": "message"}`
 - Logging: structured JSON logs via `structlog`
+
+## Authentication Architecture
+
+- **Password hashing**: `bcrypt` directly (not passlib) — `bcrypt.hashpw` / `bcrypt.checkpw`
+- **Login flow**: two-step — step 1 validates password and returns `totp_required: true`, step 2 validates TOTP code and returns JWT
+- **JWT sessions**: `pyjwt` with `HS256`, 24-hour expiry, payload `{"sub": user_id, "exp": ...}`
+- **TOTP 2FA**: `pyotp` + `qrcode`, setup via `/auth/setup-qr` (public path for first-time setup)
+- **OAuth**: Google (google-auth-oauthlib with PKCE) and Microsoft (MSAL ConfidentialClientApplication)
+- **Redirect URI**: both providers use `http://localhost:3000/auth/callback` (frontend handles callback)
+- **Frontend auth**: Vue Router `beforeEach` guard checks auth store, redirects unauthenticated users to `/login`
 
 ## Living Documents
 

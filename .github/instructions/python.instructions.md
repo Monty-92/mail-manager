@@ -42,6 +42,24 @@ applyTo: "**/*.py"
 - Use custom exception classes for domain errors
 - Always return `{"detail": "message"}` shape for errors
 
+## Authentication
+- Use `bcrypt` directly (`bcrypt.hashpw`, `bcrypt.checkpw`) — do **not** use `passlib`
+- JWT via `pyjwt`: 24-hour expiry, `HS256` algorithm, payload includes `sub` (user ID) and `exp`
+- TOTP 2FA via `pyotp` + `qrcode`: two-step login flow (password check → TOTP verify)
+- Auth middleware: `Depends(get_current_user)` extracts and validates JWT from `Authorization: Bearer` header
+
+## Redis Pub/Sub
+- Channels follow `mailmanager.<entity>.<event>` pattern (e.g., `mailmanager.email.new`)
+- Subscribers run as `asyncio.create_task` in the lifespan context
+- Messages are JSON-encoded; always include entity ID and timestamp
+- Use `redis.aio` for async Redis connections
+
+## OAuth Providers
+- Google: `google-auth-oauthlib` Flow with PKCE enabled (`code_verifier` persisted between auth URL generation and token exchange)
+- Microsoft: `msal.ConfidentialClientApplication` with `initiate_auth_code_flow` / `acquire_token_by_auth_code_flow`
+- Both use `http://localhost:3000/auth/callback` as redirect URI (frontend handles callback, POSTs code to BFF)
+- Provider adapter pattern: each provider module exposes `get_auth_url()`, `exchange_token()`, `fetch_emails()`, `refresh_token()`
+
 ## Database
 - Use `asyncpg` for async Postgres connections
 - Use connection pools, never create connections per request

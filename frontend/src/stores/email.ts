@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { Email, EmailAnalysis, PaginationParams } from '@/types'
+import { getEmails, type EmailListParams } from '@/api/emails'
 import { api } from '@/api/client'
 
 export const useEmailStore = defineStore('email', () => {
@@ -15,13 +16,13 @@ export const useEmailStore = defineStore('email', () => {
     [...emails.value].sort((a, b) => new Date(b.received_at).getTime() - new Date(a.received_at).getTime()).slice(0, 10),
   )
 
-  async function fetchEmails(params?: PaginationParams) {
+  async function fetchEmails(params?: EmailListParams) {
     loading.value = true
     error.value = null
     try {
-      // The BFF doesn't have a direct emails list endpoint yet,
-      // but we prepare for it. For now, tasks/topics link to emails by ID.
-      emails.value = []
+      const resp = await getEmails(params)
+      emails.value = resp.emails
+      totalCount.value = resp.total
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to fetch emails'
     } finally {

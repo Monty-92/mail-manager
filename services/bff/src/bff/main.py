@@ -12,6 +12,7 @@ from bff.routers import analysis, ingestion, preprocessing, summaries, tasks, to
 from bff.routers import accounts as accounts_router
 from bff.routers import auth as auth_router
 from bff.routers import calendar as calendar_router
+from bff.routers import emails as emails_router
 
 logger = structlog.get_logger()
 
@@ -46,6 +47,7 @@ app.add_middleware(
 app.include_router(auth_router.router)
 app.include_router(accounts_router.router)
 app.include_router(calendar_router.router)
+app.include_router(emails_router.router)
 app.include_router(ingestion.router)
 app.include_router(preprocessing.router)
 app.include_router(analysis.router)
