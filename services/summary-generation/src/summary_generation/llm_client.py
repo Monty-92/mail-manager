@@ -127,7 +127,7 @@ async def _call_ollama(system_prompt: str, user_message: str) -> str:
         "stream": False,
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=600.0) as client:
         response = await client.post(f"{settings.ollama_base_url}/api/chat", json=payload)
         response.raise_for_status()
 

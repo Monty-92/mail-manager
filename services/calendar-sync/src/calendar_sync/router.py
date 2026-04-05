@@ -5,14 +5,18 @@ from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, HTTPException, Query
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
 
 from calendar_sync.calendar_repository import (
     delete_event,
     get_calendar_account,
     get_calendar_accounts,
     get_events,
+    update_account_token,
     upsert_calendar_event,
 )
+from calendar_sync.config import settings
 from calendar_sync.providers.google import GoogleCalendarProvider
 from calendar_sync.providers.outlook import OutlookCalendarProvider
 from calendar_sync.schemas import (
@@ -25,6 +29,34 @@ from calendar_sync.schemas import (
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
+
+
+async def _refresh_google_token(acct: dict) -> str:
+    """Return a valid Google access token, refreshing if expired."""
+    token_expiry = acct.get("token_expiry")
+    access_token = acct["access_token"]
+    refresh_token = acct.get("refresh_token")
+
+    if token_expiry and token_expiry.replace(tzinfo=timezone.utc) > datetime.now(tz=timezone.utc) + timedelta(minutes=5):
+        return access_token
+
+    if not refresh_token:
+        logger.warning("no refresh token, using existing access token", email=acct["email"])
+        return access_token
+
+    creds = Credentials(
+        token=access_token,
+        refresh_token=refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=settings.google_client_id,
+        client_secret=settings.google_client_secret,
+    )
+    creds.refresh(Request())
+
+    new_expiry = creds.expiry.replace(tzinfo=timezone.utc) if creds.expiry else None
+    await update_account_token(str(acct["id"]), creds.token, new_expiry)
+    logger.info("google token refreshed", email=acct["email"])
+    return creds.token
 
 
 def _event_to_response(e: dict) -> CalendarEventResponse:
@@ -108,11 +140,12 @@ async def sync_calendar(req: SyncCalendarRequest | None = None) -> list[SyncCale
 
     for acct in accounts:
         provider_type = acct["provider"]
-        access_token = acct["access_token"]
 
         if provider_type == "gmail":
+            access_token = await _refresh_google_token(acct)
             cal_provider = GoogleCalendarProvider(access_token)
         elif provider_type == "outlook":
+            access_token = acct["access_token"]
             cal_provider = OutlookCalendarProvider(access_token)
         else:
             continue

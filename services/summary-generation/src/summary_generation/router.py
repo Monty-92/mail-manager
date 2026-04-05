@@ -39,7 +39,11 @@ async def generate_daily_summary(
     target_date: date = Query(..., alias="date", description="Summary date (YYYY-MM-DD)"),
 ) -> SummaryResult:
     """Generate (or regenerate) a daily summary for the given date and type."""
-    result = await generate_daily(target_date, summary_type)
+    try:
+        result = await generate_daily(target_date, summary_type)
+    except Exception:
+        logger.exception("failed to generate daily summary", summary_type=summary_type, date=str(target_date))
+        raise HTTPException(status_code=502, detail="LLM service unavailable — is the Ollama model loaded?")
     if result.summary_id:
         await publish_summary_generated(result.summary_id, result.summary_type, str(result.date))
     return result
