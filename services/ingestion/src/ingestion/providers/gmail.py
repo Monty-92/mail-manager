@@ -15,6 +15,9 @@ from ingestion.schemas import EmailProvider, OAuthTokens, RawEmail
 logger = structlog.get_logger()
 
 SCOPES = [
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/calendar",
 ]
@@ -33,7 +36,7 @@ class GmailProvider(BaseEmailProvider):
         return EmailProvider.GMAIL
 
     def _get_flow(self) -> Flow:
-        return Flow.from_client_config(
+        flow = Flow.from_client_config(
             {
                 "web": {
                     "client_id": settings.google_client_id,
@@ -45,15 +48,21 @@ class GmailProvider(BaseEmailProvider):
             scopes=SCOPES,
             redirect_uri=settings.google_redirect_uri,
         )
+        return flow
 
-    def get_auth_url(self) -> str:
+    def get_auth_url(self, state: str | None = None) -> tuple[str, str | None]:
+        """Return (auth_url, code_verifier) tuple. code_verifier must be stored for token exchange."""
         flow = self._get_flow()
-        auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
-        return auth_url
+        kwargs: dict = {"prompt": "consent", "access_type": "offline"}
+        if state:
+            kwargs["state"] = state
+        auth_url, _ = flow.authorization_url(**kwargs)
+        return auth_url, flow.code_verifier
 
-    async def authenticate(self, auth_code: str | None = None) -> OAuthTokens:
+    async def authenticate(self, auth_code: str | None = None, code_verifier: str | None = None) -> OAuthTokens:
         if auth_code:
             flow = self._get_flow()
+            flow.code_verifier = code_verifier
             flow.fetch_token(code=auth_code)
             self._credentials = flow.credentials
         elif self._tokens:

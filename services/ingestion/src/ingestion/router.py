@@ -27,8 +27,8 @@ logger = structlog.get_logger()
 
 router = APIRouter(prefix="/ingest", tags=["ingestion"])
 
-# Temporary state storage for OAuth flows (maps state -> provider)
-_oauth_state_map: dict[str, str] = {}
+# Temporary state storage for OAuth flows (maps state -> {provider, code_verifier})
+_oauth_state_map: dict[str, dict[str, str | None]] = {}
 
 
 def _make_provider(provider: EP, tokens: OAuthTokens | None = None) -> BaseEmailProvider:
@@ -50,6 +50,7 @@ class AuthUrlResponse(BaseModel):
 class AuthCallbackRequest(BaseModel):
     code: str
     provider: EP
+    state: str | None = None
 
 
 class AuthCallbackResponse(BaseModel):
@@ -90,22 +91,35 @@ class DeviceFlowPollResponse(BaseModel):
 async def get_auth_url(provider: EP) -> AuthUrlResponse:
     """Get the OAuth authorization URL for a provider. Includes state for CSRF protection."""
     state = secrets.token_urlsafe(32)
-    _oauth_state_map[state] = provider.value
 
     adapter = _make_provider(provider)
-    url = adapter.get_auth_url()
-    # Append state to URL
-    separator = "&" if "?" in url else "?"
-    url_with_state = f"{url}{separator}state={state}"
+    url, code_verifier = adapter.get_auth_url(state=state)
 
-    return AuthUrlResponse(auth_url=url_with_state, provider=provider.value)
+    _oauth_state_map[state] = {"provider": provider.value, "code_verifier": code_verifier}
+
+    return AuthUrlResponse(auth_url=url, provider=provider.value)
 
 
 @router.post("/auth/callback")
 async def auth_callback(req: AuthCallbackRequest) -> AuthCallbackResponse:
     """Exchange an OAuth authorization code for tokens and save the account."""
     adapter = _make_provider(req.provider)
-    tokens = await adapter.authenticate(auth_code=req.code)
+
+    # Retrieve the code_verifier stored during auth URL generation
+    code_verifier: str | None = None
+    state_key = req.state
+    if state_key and state_key in _oauth_state_map:
+        state_data = _oauth_state_map.pop(state_key)
+        code_verifier = state_data.get("code_verifier")
+    else:
+        # Fallback: find by provider (handles missing state)
+        for key, data in list(_oauth_state_map.items()):
+            if data["provider"] == req.provider.value:
+                code_verifier = data.get("code_verifier")
+                del _oauth_state_map[key]
+                break
+
+    tokens = await adapter.authenticate(auth_code=req.code, code_verifier=code_verifier)
 
     # Fetch user email/profile from the provider
     email, display_name = await _fetch_user_profile(req.provider, tokens.access_token)
@@ -144,7 +158,9 @@ async def start_device_flow(provider: EP) -> DeviceFlowStartResponse:
                 "https://oauth2.googleapis.com/device/code",
                 data={"client_id": settings.google_client_id, "scope": " ".join(GMAIL_SCOPES)},
             )
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                detail = resp.json().get("error_description", resp.text)
+                raise HTTPException(status_code=400, detail=f"Google device flow not available: {detail}")
             data = resp.json()
 
         return DeviceFlowStartResponse(
@@ -164,7 +180,9 @@ async def start_device_flow(provider: EP) -> DeviceFlowStartResponse:
                 f"https://login.microsoftonline.com/{settings.ms_tenant_id}/oauth2/v2.0/devicecode",
                 data={"client_id": settings.ms_client_id, "scope": " ".join(OUTLOOK_SCOPES)},
             )
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                detail = resp.json().get("error_description", resp.text)
+                raise HTTPException(status_code=400, detail=f"Microsoft device flow not available: {detail}")
             data = resp.json()
 
         return DeviceFlowStartResponse(

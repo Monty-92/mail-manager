@@ -13,7 +13,7 @@ class BaseEmailProvider(ABC):
         ...
 
     @abstractmethod
-    async def authenticate(self, auth_code: str | None = None) -> OAuthTokens:
+    async def authenticate(self, auth_code: str | None = None, code_verifier: str | None = None) -> OAuthTokens:
         """Authenticate with the provider. If auth_code is provided, exchange it for tokens.
         Otherwise, attempt to use stored refresh token.
         """
@@ -46,6 +46,6 @@ class BaseEmailProvider(ABC):
         ...
 
     @abstractmethod
-    def get_auth_url(self) -> str:
-        """Return the OAuth authorization URL for the user to visit."""
+    def get_auth_url(self, state: str | None = None) -> tuple[str, str | None]:
+        """Return (auth_url, code_verifier) tuple for the OAuth authorization flow."""
         ...
