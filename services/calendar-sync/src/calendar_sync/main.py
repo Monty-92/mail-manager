@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 import structlog
 from fastapi import FastAPI
 
-from calendar_sync.calendar_repository import close_pool
+from calendar_sync.calendar_repository import close_pool, get_pool
 from calendar_sync.router import router
 
 logger = structlog.get_logger()
@@ -20,6 +20,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ],
     )
     logger.info("calendar-sync service started")
+
+    # Eagerly initialize DB pool
+    await get_pool()
+
     yield
     await close_pool()
     logger.info("calendar-sync service stopped")

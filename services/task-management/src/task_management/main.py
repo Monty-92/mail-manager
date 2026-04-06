@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from task_management.events import close_redis, subscribe_analyzed_emails
 from task_management.extractor import handle_analyzed_event
-from task_management.repository import close_pool
+from task_management.repository import close_pool, get_pool
 from task_management.router import router
 
 logger = structlog.get_logger()
@@ -27,6 +27,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     _subscriber_task = asyncio.create_task(subscribe_analyzed_emails(handle_analyzed_event))
     logger.info("task-management service started")
+
+    # Eagerly initialize DB pool
+    await get_pool()
+
     yield
     if _subscriber_task is not None:
         _subscriber_task.cancel()

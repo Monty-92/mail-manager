@@ -33,7 +33,7 @@ async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
         dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-        _pool = await asyncpg.create_pool(dsn, min_size=2, max_size=10)
+        _pool = await asyncpg.create_pool(dsn, min_size=2, max_size=10, command_timeout=60)
         logger.info("database pool created")
     return _pool
 

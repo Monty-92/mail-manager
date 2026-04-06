@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from topic_tracking.events import close_redis, subscribe_analyzed_emails
 from topic_tracking.matcher import handle_analyzed_event
-from topic_tracking.repository import close_pool
+from topic_tracking.repository import close_pool, get_pool
 from topic_tracking.router import router
 
 logger = structlog.get_logger()
@@ -23,6 +23,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ],
     )
     logger.info("topic-tracking service started")
+
+    # Eagerly initialize DB pool
+    await get_pool()
+
     subscriber_task = asyncio.create_task(subscribe_analyzed_emails(handle_analyzed_event))
     yield
     subscriber_task.cancel()

@@ -1,5 +1,6 @@
 """BFF router for connected account management (proxy to ingestion service)."""
 
+import asyncio
 from uuid import UUID
 
 import httpx
@@ -12,6 +13,9 @@ from bff.config import settings
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/v1/accounts", tags=["accounts"])
+
+MAX_RETRIES = 2
+RETRY_DELAY = 1.0
 
 
 def _extract_detail(resp: httpx.Response) -> str:
@@ -26,10 +30,19 @@ def _extract_detail(resp: httpx.Response) -> str:
 async def list_accounts() -> list[dict]:
     """List all connected accounts."""
     client = await get_client()
-    resp = await client.get(f"{settings.ingestion_url}/ingest/accounts")
-    if resp.status_code != 200:
-        raise HTTPException(status_code=resp.status_code, detail=_extract_detail(resp))
-    return resp.json()
+    last_exc: Exception | None = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            resp = await client.get(f"{settings.ingestion_url}/ingest/accounts")
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail=_extract_detail(resp))
+            return resp.json()
+        except httpx.TimeoutException as exc:
+            last_exc = exc
+            logger.warning("upstream timeout, retrying", attempt=attempt, url="/ingest/accounts")
+            if attempt < MAX_RETRIES:
+                await asyncio.sleep(RETRY_DELAY)
+    raise HTTPException(status_code=504, detail="Upstream service timed out")
 
 
 @router.delete("/{account_id}")

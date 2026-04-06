@@ -8,7 +8,7 @@ from fastapi import FastAPI
 
 from preprocessing.events import close_redis, subscribe_new_emails
 from preprocessing.pipeline import handle_new_email_event
-from preprocessing.repository import close_pool
+from preprocessing.repository import close_pool, get_pool
 from preprocessing.router import router
 
 logger = structlog.get_logger()
@@ -27,6 +27,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ],
     )
     logger.info("preprocessing service started")
+
+    # Eagerly initialize DB pool
+    await get_pool()
 
     # Start Redis subscriber in background
     _subscriber_task = asyncio.create_task(subscribe_new_emails(handle_new_email_event))
