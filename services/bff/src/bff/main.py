@@ -6,8 +6,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from bff.auth_middleware import AuthMiddleware
-from bff.auth_repository import close_pool as close_auth_pool
-from bff.client import close_client
+from bff.auth_repository import close_pool as close_auth_pool, get_pool as get_auth_pool
+from bff.client import close_client, get_client
 from bff.routers import analysis, ingestion, preprocessing, summaries, tasks, topics
 from bff.routers import accounts as accounts_router
 from bff.routers import auth as auth_router
@@ -27,6 +27,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ],
     )
     logger.info("bff service started")
+
+    # Eagerly initialize DB pool and httpx client
+    await get_auth_pool()
+    await get_client()
+    logger.info("bff resources initialised")
+
     yield
     await close_client()
     await close_auth_pool()

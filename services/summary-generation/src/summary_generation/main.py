@@ -8,7 +8,7 @@ from fastapi import FastAPI
 
 from summary_generation.events import close_redis
 from summary_generation.generator import generate_daily
-from summary_generation.repository import close_pool
+from summary_generation.repository import close_pool, get_pool
 from summary_generation.router import router
 from summary_generation.schemas import SummaryType
 
@@ -70,6 +70,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ],
     )
     logger.info("summary-generation service started")
+
+    # Eagerly initialize DB pool
+    await get_pool()
+
     scheduler_task = asyncio.create_task(_scheduled_summaries())
     yield
     scheduler_task.cancel()

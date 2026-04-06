@@ -6,9 +6,9 @@ import structlog
 from fastapi import FastAPI
 
 from ingestion.publisher import close_redis
-from ingestion.repository import close_pool
+from ingestion.repository import close_pool, get_pool
 from ingestion.router import router, _run_sync_for_provider
-from ingestion.account_repository import list_accounts
+from ingestion.account_repository import close_pool as close_account_pool, get_pool as get_account_pool, list_accounts
 from ingestion.schemas import EmailProvider
 
 logger = structlog.get_logger()
@@ -47,10 +47,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ],
     )
     logger.info("ingestion service started")
+
+    # Eagerly initialize DB pools so they're ready before any background task runs
+    await get_pool()
+    await get_account_pool()
+    logger.info("database pools initialised")
+
     sync_task = asyncio.create_task(_periodic_sync())
     yield
     sync_task.cancel()
     await close_pool()
+    await close_account_pool()
     await close_redis()
     logger.info("ingestion service stopped")
 

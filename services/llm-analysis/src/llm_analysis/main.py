@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from llm_analysis.analyzer import handle_preprocessed_event
 from llm_analysis.events import close_redis, subscribe_preprocessed_emails
-from llm_analysis.repository import close_pool
+from llm_analysis.repository import close_pool, get_pool
 from llm_analysis.router import router
 
 logger = structlog.get_logger()
@@ -23,6 +23,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ],
     )
     logger.info("llm-analysis service started")
+
+    # Eagerly initialize DB pool
+    await get_pool()
+
     subscriber_task = asyncio.create_task(subscribe_preprocessed_emails(handle_preprocessed_event))
     yield
     subscriber_task.cancel()
