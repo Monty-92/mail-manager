@@ -36,10 +36,13 @@
 ## Database Tables
 - emails (provider-agnostic: provider + external_id composite unique)
 - sync_state (provider PK, history_id for Gmail, delta_link for Outlook)
+- email_analyses (category, urgency, summary, action_items JSONB, key_topics, sentiment, is_junk, confidence)
 - topics, summaries
 - task_lists (containers for tasks, synced with Google Task lists)
 - tasks (enhanced: title, notes, priority, due_date, completed_at, position, list_id, parent_task_id)
 - calendar_events (provider + external_id, Google + Outlook)
+- app_user (single-user: username, password_hash bcrypt, totp_secret, setup_complete)
+- connected_accounts (provider, email, access_token, refresh_token, token_expiry, scopes)
 - Junction: email_topics, summary_topics, task_topics
 
 ## Build Phase Status
@@ -47,12 +50,24 @@
 - Phase B (Repo scaffold): DONE
 - Phase B-PATCH (Scope expansion): DONE
 - Phase C1 (Ingestion Service): DONE — 35 tests passing
-- Phase C2 (Preprocessing): NOT STARTED — next priority
-- Phase C3–C8: NOT STARTED
+- Phase C2 (Preprocessing): DONE — 40 tests passing
+- Phase C3 (LLM Analysis): DONE — 39 tests passing
+- Phase C4 (Topic Tracking): DONE — 25+ tests passing
+- Phase C5 (Summary Generation): DONE — 12+ tests passing
+- Phase C6 (Task Management): DONE — 9+ tests passing
+- Phase C6.5 (Calendar Sync): PARTIAL — logic implemented, tests needed (only health test)
+- Phase C7 (BFF Layer): DONE — 70+ tests passing
+- Phase C8 (Frontend): DONE — all views, stores, API wiring complete
 - Phase D (Polish): NOT STARTED
 
 ## Testing
 - All services: `cd services/<name> && uv run pytest`
 - Ingestion: 35 tests (converter: 12, providers: 10, router: 5, schemas: 7, health: 1)
-- Other 7 services: 1 health test each (7 tests)
-- Total: 42 tests passing across all services
+- Preprocessing: 40 tests (cleaner, embedder, pipeline, router, schemas, health, Docker)
+- LLM Analysis: 39 tests (schemas: 11, LLM client: 3, analyzer: 14, router: 5, Docker: 6)
+- Topic Tracking: 25+ tests (matcher: 11, router: 14)
+- Summary Generation: 12+ tests (generator: 8, llm_client: 4)
+- Task Management: 9+ tests (extractor: 9)
+- Calendar Sync: 1 test (health only — **tests needed**)
+- BFF: 70+ tests (ingestion: 6, preprocessing: 4, analysis: 5, topics: 11, summaries: 9, tasks: 28, Docker: 10, health: 2)
+- Total: 230+ tests passing across all services
