@@ -263,6 +263,49 @@ Relationships: many-to-many with `topics`. Self-referencing via `parent_task_id`
 
 Unique constraint: `(provider, external_id)`.
 
+### 5.7 `email_analyses`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID PK | Internal identifier |
+| `email_id` | UUID FK → `emails` | Analyzed email |
+| `category` | TEXT | `personal`, `work`, `transactional`, `newsletter`, `marketing`, `notification`, `spam`, `other` |
+| `urgency` | TEXT | `critical`, `high`, `normal`, `low`, `none` |
+| `summary` | TEXT | LLM-generated single-line summary |
+| `action_items` | JSONB | Structured action items with assignee/due hints |
+| `key_topics` | TEXT[] | Up to 5 topic strings |
+| `sentiment` | TEXT | `positive`, `negative`, `neutral`, `mixed` |
+| `is_junk` | BOOLEAN | Junk/spam classification |
+| `confidence` | FLOAT | Classification confidence score |
+| `created_at` | TIMESTAMPTZ | Row creation timestamp |
+
+### 5.8 `app_user`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID PK | Internal identifier |
+| `username` | TEXT UNIQUE | Login username |
+| `password_hash` | TEXT | bcrypt-hashed password |
+| `totp_secret` | TEXT | TOTP 2FA secret key |
+| `setup_complete` | BOOLEAN | Whether initial setup is done |
+| `created_at` | TIMESTAMPTZ | Row creation timestamp |
+
+### 5.9 `connected_accounts`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID PK | Internal identifier |
+| `provider` | TEXT | `gmail` or `outlook` |
+| `email` | TEXT | Provider account email |
+| `display_name` | TEXT | User display name |
+| `access_token` | TEXT | OAuth access token |
+| `refresh_token` | TEXT | OAuth refresh token |
+| `token_expiry` | TIMESTAMPTZ | Token expiration time |
+| `scopes` | TEXT[] | Granted OAuth scopes |
+| `created_at` | TIMESTAMPTZ | Row creation timestamp |
+
+Unique constraint: `(provider, email)`.
+
 ---
 
 ## 6. Living Documents
