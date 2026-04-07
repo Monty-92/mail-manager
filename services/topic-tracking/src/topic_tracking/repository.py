@@ -38,7 +38,7 @@ async def get_email_for_topics(email_id: str) -> EmailForTopics | None:
     pool = await get_pool()
     row = await pool.fetchrow(
         """
-        SELECT e.id, e.subject, e.embedding,
+        SELECT e.id, e.subject, e.embedding::float[] AS embedding,
                COALESCE(ea.key_topics, '{}') AS key_topics
         FROM emails e
         LEFT JOIN email_analyses ea ON e.id = ea.email_id
@@ -61,7 +61,7 @@ async def find_topic_by_name(name: str) -> Topic | None:
     """Find a topic by exact name (case-insensitive)."""
     pool = await get_pool()
     row = await pool.fetchrow(
-        "SELECT id, name, embedding, snapshots, created_at, updated_at FROM topics WHERE LOWER(name) = LOWER($1)",
+        "SELECT id, name, embedding::float[] AS embedding, snapshots, created_at, updated_at FROM topics WHERE LOWER(name) = LOWER($1)",
         name,
     )
     if row is None:
@@ -79,7 +79,7 @@ async def find_similar_topics(embedding: list[float], threshold: float = 0.3, li
     embedding_str = "[" + ",".join(str(v) for v in embedding) + "]"
     rows = await pool.fetch(
         """
-        SELECT id, name, embedding, snapshots, created_at, updated_at,
+        SELECT id, name, embedding::float[] AS embedding, snapshots, created_at, updated_at,
                1 - (embedding <=> $1::vector) AS similarity
         FROM topics
         WHERE embedding IS NOT NULL
@@ -159,7 +159,7 @@ async def get_topic_by_id(topic_id: str) -> Topic | None:
     pool = await get_pool()
     row = await pool.fetchrow(
         """
-        SELECT t.id, t.name, t.embedding, t.snapshots, t.created_at, t.updated_at,
+        SELECT t.id, t.name, t.embedding::float[] AS embedding, t.snapshots, t.created_at, t.updated_at,
                COUNT(et.email_id) AS email_count
         FROM topics t
         LEFT JOIN email_topics et ON t.id = et.topic_id
