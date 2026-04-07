@@ -11,6 +11,7 @@ export interface Email {
   received_at: string
   labels: string[]
   markdown_body: string
+  html_body?: string
   created_at: string
 }
 
@@ -122,7 +123,7 @@ export interface UpdateTaskListPayload {
 
 export interface CalendarEvent {
   id: string
-  provider: 'google' | 'outlook'
+  provider: 'gmail' | 'outlook'
   external_id: string
   calendar_id: string
   title: string
@@ -146,11 +147,28 @@ export interface CalendarAttendee {
 
 export interface CalendarSource {
   id: string
-  provider: 'google' | 'outlook'
+  provider: 'gmail' | 'outlook'
   account_email: string
   calendar_name: string
   color: string
   enabled: boolean
+}
+
+export interface CalendarInfo {
+  id: string
+  external_id: string
+  name: string
+  color: string
+  is_primary: boolean
+  enabled: boolean
+}
+
+export interface CalendarAccount {
+  id: string
+  provider: 'gmail' | 'outlook'
+  account_email: string
+  account_name: string
+  calendars: CalendarInfo[]
 }
 
 // ─── Chat Types ───

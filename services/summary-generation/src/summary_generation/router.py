@@ -33,20 +33,25 @@ async def get_daily_summary(
     return summary
 
 
-@router.post("/daily", response_model=SummaryResult)
+@router.post("/daily", response_model=Summary)
 async def generate_daily_summary(
     summary_type: SummaryType = Query(..., description="morning or evening"),
     target_date: date = Query(..., alias="date", description="Summary date (YYYY-MM-DD)"),
-) -> SummaryResult:
+) -> Summary:
     """Generate (or regenerate) a daily summary for the given date and type."""
     try:
         result = await generate_daily(target_date, summary_type)
     except Exception:
         logger.exception("failed to generate daily summary", summary_type=summary_type, date=str(target_date))
         raise HTTPException(status_code=502, detail="LLM service unavailable — is the Ollama model loaded?")
+    if result.error:
+        raise HTTPException(status_code=422, detail=result.error)
     if result.summary_id:
         await publish_summary_generated(result.summary_id, result.summary_type, str(result.date))
-    return result
+    summary = await get_summary(summary_type, target_date)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="summary not found after generation")
+    return summary
 
 
 @router.post("/thread/{thread_id}")

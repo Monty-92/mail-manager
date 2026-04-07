@@ -160,3 +160,78 @@ async def delete_event(event_id: str) -> bool:
     pool = await get_pool()
     result = await pool.execute("DELETE FROM calendar_events WHERE id = $1", event_id)
     return result == "DELETE 1"
+
+
+# ─── Calendars (multi-calendar support) ───
+
+
+async def upsert_calendar(
+    account_id: str,
+    provider: str,
+    external_id: str,
+    name: str,
+    color: str,
+    is_primary: bool,
+) -> dict:
+    """Insert or update a calendar record."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """
+        INSERT INTO calendars (account_id, provider, external_id, name, color, is_primary)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (provider, external_id) DO UPDATE SET
+            name = EXCLUDED.name,
+            color = EXCLUDED.color,
+            is_primary = EXCLUDED.is_primary,
+            updated_at = now()
+        RETURNING id, account_id, provider, external_id, name, color, is_primary, enabled, created_at, updated_at
+        """,
+        account_id,
+        provider,
+        external_id,
+        name,
+        color,
+        is_primary,
+    )
+    return dict(row)
+
+
+async def get_calendars_for_account(account_id: str) -> list[dict]:
+    """Get all calendars for a specific account."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT id, account_id, provider, external_id, name, color, is_primary, enabled, created_at, updated_at
+        FROM calendars
+        WHERE account_id = $1
+        ORDER BY is_primary DESC, name
+        """,
+        account_id,
+    )
+    return [dict(r) for r in rows]
+
+
+async def get_all_calendars() -> list[dict]:
+    """Get all calendars grouped by account, including account info."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT c.id, c.account_id, c.provider, c.external_id, c.name, c.color, c.is_primary, c.enabled,
+               ca.email AS account_email, ca.display_name AS account_name
+        FROM calendars c
+        JOIN connected_accounts ca ON ca.id = c.account_id
+        ORDER BY ca.email, c.is_primary DESC, c.name
+        """
+    )
+    return [dict(r) for r in rows]
+
+
+async def delete_stale_calendars(account_id: str, valid_external_ids: list[str]) -> int:
+    """Remove calendars for an account whose external_id is not in the valid set."""
+    pool = await get_pool()
+    result = await pool.execute(
+        "DELETE FROM calendars WHERE account_id = $1 AND external_id != ALL($2::text[])",
+        account_id,
+        valid_external_ids,
+    )
+    return int(result.split()[-1])
