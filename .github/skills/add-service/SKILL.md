@@ -70,6 +70,7 @@ asyncio_mode = "auto"
 - Add `depends_on` for postgres and redis (with health conditions)
 - Map port (use next available: 8001, 8002, etc.)
 - Add environment variables from `.env`
+- **Do NOT use `docker compose down -v`** to test the new service — use `docker compose up -d --build <service>` to avoid wiping Ollama models and DB data
 
 ### 7. Update Living Documents
 - Run `/maintain-living-docs` to update PROJECT_OVERVIEW.md and README.md
