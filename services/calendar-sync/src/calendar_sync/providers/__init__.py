@@ -8,6 +8,11 @@ class BaseCalendarProvider(ABC):
     """Abstract calendar provider for syncing events."""
 
     @abstractmethod
+    async def list_calendars(self) -> list[dict]:
+        """List all calendars for this account. Returns list of normalized calendar dicts."""
+        ...
+
+    @abstractmethod
     async def fetch_events(
         self, calendar_id: str = "primary", time_min: datetime | None = None, time_max: datetime | None = None
     ) -> list[dict]:

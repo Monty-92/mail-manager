@@ -10,10 +10,14 @@ from google.oauth2.credentials import Credentials
 
 from calendar_sync.calendar_repository import (
     delete_event,
+    delete_stale_calendars,
+    get_all_calendars,
     get_calendar_account,
     get_calendar_accounts,
+    get_calendars_for_account,
     get_events,
     update_account_token,
+    upsert_calendar,
     upsert_calendar_event,
 )
 from calendar_sync.config import settings
@@ -21,7 +25,6 @@ from calendar_sync.providers.google import GoogleCalendarProvider
 from calendar_sync.providers.outlook import OutlookCalendarProvider
 from calendar_sync.schemas import (
     CalendarEventResponse,
-    CalendarSourceResponse,
     SyncCalendarRequest,
     SyncCalendarResponse,
 )
@@ -100,28 +103,50 @@ async def list_events(
 
 
 @router.get("/sources")
-async def list_sources() -> list[CalendarSourceResponse]:
-    """List all calendar sources (connected accounts with calendar access)."""
-    accounts = await get_calendar_accounts()
-    sources = []
-    for i, acct in enumerate(accounts):
-        color = "#4285f4" if acct["provider"] == "gmail" else "#0078d4"
-        sources.append(
-            CalendarSourceResponse(
-                id=str(acct["id"]),
-                provider=acct["provider"],
-                account_email=acct["email"],
-                calendar_name=f"{acct['display_name'] or acct['email']} Calendar",
-                color=color,
-                enabled=True,
-            )
-        )
-    return sources
+async def list_sources() -> list[dict]:
+    """List all calendars grouped by account."""
+    all_cals = await get_all_calendars()
+    if not all_cals:
+        # Fallback: still return account-level entries if no calendars synced yet
+        accounts = await get_calendar_accounts()
+        return [
+            {
+                "id": str(acct["id"]),
+                "provider": acct["provider"],
+                "account_email": acct["email"],
+                "account_name": acct.get("display_name") or acct["email"],
+                "calendars": [],
+            }
+            for acct in accounts
+        ]
+
+    # Group calendars by account
+    accounts_map: dict[str, dict] = {}
+    for cal in all_cals:
+        acct_id = str(cal["account_id"])
+        if acct_id not in accounts_map:
+            accounts_map[acct_id] = {
+                "id": acct_id,
+                "provider": cal["provider"],
+                "account_email": cal["account_email"],
+                "account_name": cal.get("account_name") or cal["account_email"],
+                "calendars": [],
+            }
+        accounts_map[acct_id]["calendars"].append({
+            "id": str(cal["id"]),
+            "external_id": cal["external_id"],
+            "name": cal["name"],
+            "color": cal["color"],
+            "is_primary": cal["is_primary"],
+            "enabled": cal["enabled"],
+        })
+
+    return list(accounts_map.values())
 
 
 @router.post("/sync")
 async def sync_calendar(req: SyncCalendarRequest | None = None) -> list[SyncCalendarResponse]:
-    """Sync calendar events from connected accounts."""
+    """Sync calendar events from connected accounts. Discovers all calendars and syncs each one."""
     if req and req.account_id:
         acct = await get_calendar_account(req.account_id)
         if not acct:
@@ -150,32 +175,69 @@ async def sync_calendar(req: SyncCalendarRequest | None = None) -> list[SyncCale
         else:
             continue
 
+        # Discover all calendars for this account
         try:
-            events = await cal_provider.fetch_events(calendar_id="primary", time_min=time_min, time_max=time_max)
+            provider_calendars = await cal_provider.list_calendars()
         except Exception:
-            logger.exception("calendar sync failed", provider=provider_type, email=acct["email"])
-            continue
+            logger.exception("failed to list calendars", provider=provider_type, email=acct["email"])
+            # Fall back to syncing just "primary"
+            provider_calendars = [{"external_id": "primary", "name": "Primary", "color": "#4285f4", "is_primary": True}]
+
+        # Persist discovered calendars
+        for cal_meta in provider_calendars:
+            await upsert_calendar(
+                account_id=str(acct["id"]),
+                provider=provider_type,
+                external_id=cal_meta["external_id"],
+                name=cal_meta["name"],
+                color=cal_meta["color"],
+                is_primary=cal_meta.get("is_primary", False),
+            )
+
+        # Remove stale calendars (e.g. fallback "primary" replaced by real discovery)
+        discovered_ids = [c["external_id"] for c in provider_calendars]
+        removed = await delete_stale_calendars(str(acct["id"]), discovered_ids)
+        if removed:
+            logger.info("removed stale calendars", count=removed, email=acct["email"])
+
+        # Fetch enabled calendars from DB (respects user toggling)
+        db_calendars = await get_calendars_for_account(str(acct["id"]))
+        enabled_cals = [c for c in db_calendars if c["enabled"]]
 
         synced = 0
-        for ev in events:
-            await upsert_calendar_event(
-                provider=ev["provider"],
-                external_id=ev["external_id"],
-                calendar_id=ev["calendar_id"],
-                title=ev["title"],
-                description=ev["description"],
-                start_at=ev["start_at"],
-                end_at=ev["end_at"],
-                all_day=ev["all_day"],
-                location=ev["location"],
-                status=ev["status"],
-                organizer=ev.get("organizer"),
-                attendees=ev.get("attendees", []),
-            )
-            synced += 1
+        for cal in enabled_cals:
+            try:
+                events = await cal_provider.fetch_events(
+                    calendar_id=cal["external_id"], time_min=time_min, time_max=time_max
+                )
+            except Exception:
+                logger.exception(
+                    "calendar sync failed for calendar",
+                    provider=provider_type,
+                    calendar=cal["name"],
+                    email=acct["email"],
+                )
+                continue
+
+            for ev in events:
+                await upsert_calendar_event(
+                    provider=ev["provider"],
+                    external_id=ev["external_id"],
+                    calendar_id=str(cal["id"]),
+                    title=ev["title"],
+                    description=ev["description"],
+                    start_at=ev["start_at"],
+                    end_at=ev["end_at"],
+                    all_day=ev["all_day"],
+                    location=ev["location"],
+                    status=ev["status"],
+                    organizer=ev.get("organizer"),
+                    attendees=ev.get("attendees", []),
+                )
+                synced += 1
 
         results.append(SyncCalendarResponse(synced=synced, provider=provider_type, account_email=acct["email"]))
-        logger.info("calendar synced", provider=provider_type, email=acct["email"], synced=synced)
+        logger.info("calendar synced", provider=provider_type, email=acct["email"], synced=synced, calendars=len(enabled_cals))
 
     return results
 
