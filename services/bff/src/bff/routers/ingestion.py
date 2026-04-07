@@ -59,3 +59,13 @@ async def fetch_provider(
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code, detail=resp.json().get("detail", "upstream error"))
     return resp.json()
+
+
+@router.post("/resolve-labels/{provider}")
+async def resolve_labels(provider: str) -> dict:
+    """Translate stored provider label IDs to human-friendly names for all existing emails."""
+    client = await get_client()
+    resp = await client.post(f"{settings.ingestion_url}/ingest/resolve-labels/{provider}")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.json().get("detail", "upstream error"))
+    return resp.json()
