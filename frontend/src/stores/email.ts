@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { Email, EmailAnalysis, PaginationParams } from '@/types'
-import { getEmails, type EmailListParams } from '@/api/emails'
+import { getEmails, getEmail, getEmailLabels, type EmailListParams } from '@/api/emails'
 import { api } from '@/api/client'
 
 export const useEmailStore = defineStore('email', () => {
@@ -11,6 +11,8 @@ export const useEmailStore = defineStore('email', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
   const totalCount = ref(0)
+  const labels = ref<string[]>([])
+  const activeLabel = ref<string | null>(null)
 
   const recentEmails = computed(() =>
     [...emails.value].sort((a, b) => new Date(b.received_at).getTime() - new Date(a.received_at).getTime()).slice(0, 10),
@@ -20,7 +22,11 @@ export const useEmailStore = defineStore('email', () => {
     loading.value = true
     error.value = null
     try {
-      const resp = await getEmails(params)
+      const mergedParams: EmailListParams = { ...params }
+      if (activeLabel.value) {
+        mergedParams.label = activeLabel.value
+      }
+      const resp = await getEmails(mergedParams)
       emails.value = resp.emails
       totalCount.value = resp.total
     } catch (e) {
@@ -28,6 +34,29 @@ export const useEmailStore = defineStore('email', () => {
     } finally {
       loading.value = false
     }
+  }
+
+  async function fetchEmailDetail(emailId: string): Promise<Email | null> {
+    try {
+      const email = await getEmail(emailId)
+      currentEmail.value = email
+      return email
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to fetch email'
+      return null
+    }
+  }
+
+  async function fetchLabels() {
+    try {
+      labels.value = await getEmailLabels()
+    } catch {
+      labels.value = []
+    }
+  }
+
+  function setActiveLabel(label: string | null) {
+    activeLabel.value = label
   }
 
   async function fetchAnalysis(emailId: string) {
@@ -54,8 +83,13 @@ export const useEmailStore = defineStore('email', () => {
     loading,
     error,
     totalCount,
+    labels,
+    activeLabel,
     recentEmails,
     fetchEmails,
+    fetchEmailDetail,
+    fetchLabels,
+    setActiveLabel,
     fetchAnalysis,
     setCurrentEmail,
   }

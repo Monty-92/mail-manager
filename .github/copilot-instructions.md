@@ -61,6 +61,31 @@ mail-manager is a modular email-intelligence and personal productivity engine. S
 - Include `HEALTHCHECK` instruction in every service Dockerfile
 - Never run containers as root in production stages
 
+## Docker Operations Safety
+
+- **Never use `docker compose down -v`** (removes volumes) unless the user explicitly asks to wipe data. Ollama volumes contain multi-GB models that take a long time to re-download.
+- To reset only the database, use: `docker compose down` (no `-v`), then `docker compose up -d postgres`, then re-run migrations. Or simply drop/recreate the DB inside the running container.
+- To restart services without losing data: `docker compose restart <service>` or `docker compose up -d --build <service>`
+- Prefer `docker compose up -d --build` over `down -v && up` — it rebuilds images without touching volumes.
+- **Volume-heavy services**: `ollama` (models: llama3.1:8b ~5 GB, nomic-embed-text ~274 MB), `postgres` (database), `redis` (cache)
+
+## Post-Change Rebuild (REQUIRED after every phase of changes)
+
+After completing any phase of code changes, **always rebuild and restart the affected application services** before validating or moving on:
+
+```bash
+# Rebuild only changed services (fastest — preferred approach)
+docker compose up -d --build <service1> <service2> ...
+
+# Rebuild all application services at once
+docker compose up -d --build ingestion preprocessing llm-analysis topic-tracking summary-generation task-management calendar-sync bff frontend
+```
+
+- **Never include** `ollama`, `postgres`, or `redis` in rebuild commands — these are infrastructure services not affected by application code changes.
+- For DB migration changes only: run `make migrate` — no service rebuild needed.
+- After rebuilding, confirm health: `docker compose ps`
+- See `docker.instructions.md` for the full service-to-directory mapping.
+
 ## Commands
 
 | Task | Command |

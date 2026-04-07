@@ -116,7 +116,8 @@ async def get_summary(summary_type: SummaryType, target_date: date) -> Summary |
     pool = await get_pool()
     row = await pool.fetchrow(
         """
-        SELECT s.id, s.summary_type, s.date, s.markdown_body, s.embedding, s.diff_hash, s.created_at
+        SELECT s.id, s.summary_type, s.date, s.markdown_body,
+               s.embedding::float[] AS embedding, s.diff_hash, s.created_at
         FROM summaries s
         WHERE s.summary_type = $1 AND s.date = $2
         """,
@@ -144,7 +145,8 @@ async def get_summary_by_id(summary_id: str) -> Summary | None:
     pool = await get_pool()
     row = await pool.fetchrow(
         """
-        SELECT id, summary_type, date, markdown_body, embedding, diff_hash, created_at
+        SELECT id, summary_type, date, markdown_body,
+               embedding::float[] AS embedding, diff_hash, created_at
         FROM summaries
         WHERE id = $1
         """,
@@ -171,7 +173,7 @@ async def list_summaries(limit: int = 30, offset: int = 0) -> list[SummaryListIt
     pool = await get_pool()
     rows = await pool.fetch(
         """
-        SELECT id, summary_type, date, diff_hash, created_at
+        SELECT id, summary_type, date, markdown_body, diff_hash, created_at
         FROM summaries
         ORDER BY date DESC, summary_type ASC
         LIMIT $1 OFFSET $2
@@ -184,6 +186,7 @@ async def list_summaries(limit: int = 30, offset: int = 0) -> list[SummaryListIt
             id=str(row["id"]),
             summary_type=row["summary_type"],
             date=row["date"],
+            markdown_body=row["markdown_body"] or "",
             diff_hash=row["diff_hash"],
             created_at=row["created_at"],
         )

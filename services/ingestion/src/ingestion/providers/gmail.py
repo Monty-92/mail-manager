@@ -91,8 +91,19 @@ class GmailProvider(BaseEmailProvider):
         if self._service is None:
             raise RuntimeError("Gmail provider not authenticated. Call authenticate() first.")
 
+    def _fetch_label_map(self) -> dict[str, str]:
+        """Fetch Gmail label ID→name mapping. Returns dict of {id: name}."""
+        self._ensure_service()
+        try:
+            result = self._service.users().labels().list(userId="me").execute()
+            return {lbl["id"]: lbl["name"] for lbl in result.get("labels", [])}
+        except Exception:
+            logger.warning("failed to fetch gmail label map")
+            return {}
+
     async def fetch_emails(self, *, max_results: int = 100, page_token: str | None = None) -> list[RawEmail]:
         self._ensure_service()
+        label_map = self._fetch_label_map()
         kwargs: dict = {"userId": "me", "maxResults": max_results}
         if page_token:
             kwargs["pageToken"] = page_token
@@ -102,7 +113,7 @@ class GmailProvider(BaseEmailProvider):
 
         emails: list[RawEmail] = []
         for msg_id in message_ids:
-            raw = await self._fetch_single_message(msg_id)
+            raw = await self._fetch_single_message(msg_id, label_map)
             if raw:
                 emails.append(raw)
 
@@ -111,6 +122,7 @@ class GmailProvider(BaseEmailProvider):
 
     async def fetch_new_emails(self, since_token: str | None = None) -> tuple[list[RawEmail], str | None]:
         self._ensure_service()
+        label_map = self._fetch_label_map()
 
         if since_token is None:
             # First sync — get current history ID and fetch last batch
@@ -141,14 +153,14 @@ class GmailProvider(BaseEmailProvider):
 
         emails: list[RawEmail] = []
         for msg_id in message_ids:
-            raw = await self._fetch_single_message(msg_id)
+            raw = await self._fetch_single_message(msg_id, label_map)
             if raw:
                 emails.append(raw)
 
         logger.info("gmail incremental fetch", count=len(emails), old_history_id=since_token)
         return emails, new_history_id
 
-    async def _fetch_single_message(self, message_id: str) -> RawEmail | None:
+    async def _fetch_single_message(self, message_id: str, label_map: dict[str, str] | None = None) -> RawEmail | None:
         """Fetch and parse a single Gmail message."""
         try:
             msg = self._service.users().messages().get(userId="me", id=message_id, format="full").execute()
@@ -161,7 +173,8 @@ class GmailProvider(BaseEmailProvider):
         recipients = _parse_recipients(headers)
         subject = headers.get("subject", "")
         received_at = _parse_gmail_timestamp(msg.get("internalDate", "0"))
-        labels = msg.get("labelIds", [])
+        raw_labels = msg.get("labelIds", [])
+        labels = [label_map.get(lbl, lbl) if label_map else lbl for lbl in raw_labels]
         thread_id = msg.get("threadId")
 
         html_body, text_body = _extract_body_parts(msg.get("payload", {}))

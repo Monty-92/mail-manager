@@ -367,10 +367,10 @@ async function removeAccount(id: string) {
         </div>
       </div>
 
-      <BaseCard title="Connected Accounts" subtitle="Manage your Gmail and Outlook connections">
+      <BaseCard title="Connected Accounts" subtitle="Manage your Gmail connections">
         <div class="space-y-4">
           <!-- Provider connection buttons -->
-          <div class="grid gap-3 sm:grid-cols-2">
+          <div class="max-w-sm">
             <div class="space-y-2">
               <button
                 class="flex w-full items-center gap-3 rounded-lg border p-4 transition-all duration-150 hover:shadow-sm"
@@ -394,31 +394,6 @@ async function removeAccount(id: string) {
                 class="flex w-full items-center gap-2 rounded-lg px-4 py-2 text-xs transition-colors"
                 :style="{ color: 'var(--color-text-muted)' }"
                 @click="startDeviceFlow('gmail')"
-              >
-                <QrCodeIcon class="h-4 w-4" />
-                Use QR code instead
-              </button>
-            </div>
-            <div class="space-y-2">
-              <button
-                class="flex w-full items-center gap-3 rounded-lg border p-4 transition-all duration-150 hover:shadow-sm"
-                :style="{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-bg-primary)' }"
-                @click="connectProvider('outlook')"
-              >
-                <div class="flex h-10 w-10 items-center justify-center rounded-lg" style="background-color: #0078d41a">
-                  <svg class="h-5 w-5" viewBox="0 0 24 24" fill="#0078d4">
-                    <path d="M1 5.8V18.2L8.7 12 1 5.8zM1.5 5L12 14.5 22.5 5H1.5zM15.3 12L23 18.2V5.8L15.3 12zM14.6 12.6L12 15.1 9.4 12.6 1.5 19H22.5L14.6 12.6z" />
-                  </svg>
-                </div>
-                <div class="text-left">
-                  <p class="text-sm font-medium" :style="{ color: 'var(--color-text-primary)' }">Outlook</p>
-                  <p class="text-xs" :style="{ color: 'var(--color-text-muted)' }">Connect via redirect</p>
-                </div>
-              </button>
-              <button
-                class="flex w-full items-center gap-2 rounded-lg px-4 py-2 text-xs transition-colors"
-                :style="{ color: 'var(--color-text-muted)' }"
-                @click="startDeviceFlow('outlook')"
               >
                 <QrCodeIcon class="h-4 w-4" />
                 Use QR code instead

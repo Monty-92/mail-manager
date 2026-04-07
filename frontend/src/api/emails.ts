@@ -11,6 +11,7 @@ export interface EmailListResponse {
 export interface EmailListParams extends PaginationParams {
   provider?: string
   search?: string
+  label?: string
 }
 
 export async function getEmails(params?: EmailListParams): Promise<EmailListResponse> {
@@ -19,4 +20,8 @@ export async function getEmails(params?: EmailListParams): Promise<EmailListResp
 
 export async function getEmail(emailId: string): Promise<Email> {
   return api.get<Email>(`/emails/${emailId}`)
+}
+
+export async function getEmailLabels(): Promise<string[]> {
+  return api.get<string[]>('/emails/labels')
 }

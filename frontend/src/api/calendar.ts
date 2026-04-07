@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { CalendarEvent, CalendarSource } from '@/types'
+import type { CalendarAccount, CalendarEvent, CalendarSource } from '@/types'
 
 export interface SyncCalendarResponse {
   synced: number
@@ -16,8 +16,8 @@ export async function getCalendarEvents(params?: {
   return api.get<CalendarEvent[]>('/calendar/events', params)
 }
 
-export async function getCalendarSources(): Promise<CalendarSource[]> {
-  return api.get<CalendarSource[]>('/calendar/sources')
+export async function getCalendarSources(): Promise<CalendarAccount[]> {
+  return api.get<CalendarAccount[]>('/calendar/sources')
 }
 
 export async function syncCalendar(accountId?: string): Promise<SyncCalendarResponse[]> {

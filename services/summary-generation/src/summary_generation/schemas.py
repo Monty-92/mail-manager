@@ -51,11 +51,12 @@ class Summary(BaseModel):
 
 
 class SummaryListItem(BaseModel):
-    """Lightweight summary info for list views (no body or embedding)."""
+    """Summary info for list views (no embedding)."""
 
     id: str
     summary_type: SummaryType
     date: date
+    markdown_body: str = ""
     diff_hash: str | None = None
     created_at: datetime | None = None
 

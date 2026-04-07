@@ -19,6 +19,25 @@ class OutlookCalendarProvider(BaseCalendarProvider):
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._access_token}", "Content-Type": "application/json"}
 
+    async def list_calendars(self) -> list[dict]:
+        """List all calendars for this Outlook account."""
+        calendars: list[dict] = []
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{GRAPH_BASE}/me/calendars", headers=self._headers(), timeout=30.0)
+            resp.raise_for_status()
+            data = resp.json()
+
+            for item in data.get("value", []):
+                calendars.append({
+                    "external_id": item["id"],
+                    "name": item.get("name", "Calendar"),
+                    "color": _outlook_color_to_hex(item.get("color", "auto")),
+                    "is_primary": item.get("isDefaultCalendar", False),
+                })
+
+        logger.info("outlook calendars listed", count=len(calendars))
+        return calendars
+
     async def fetch_events(
         self, calendar_id: str = "primary", time_min: datetime | None = None, time_max: datetime | None = None
     ) -> list[dict]:
@@ -31,7 +50,10 @@ class OutlookCalendarProvider(BaseCalendarProvider):
             params["$filter"] = f"start/dateTime le '{time_max.isoformat()}'"
 
         events: list[dict] = []
-        url = f"{GRAPH_BASE}/me/events"
+        if calendar_id == "primary":
+            url = f"{GRAPH_BASE}/me/events"
+        else:
+            url = f"{GRAPH_BASE}/me/calendars/{calendar_id}/events"
 
         async with httpx.AsyncClient() as client:
             while url:
@@ -140,3 +162,22 @@ def _to_graph_event(data: dict) -> dict:
     if "all_day" in data:
         body["isAllDay"] = data["all_day"]
     return body
+
+
+_OUTLOOK_COLORS: dict[str, str] = {
+    "auto": "#0078d4",
+    "lightBlue": "#71afe5",
+    "lightGreen": "#7ed321",
+    "lightOrange": "#ff8c00",
+    "lightGray": "#b3b3b3",
+    "lightYellow": "#fff100",
+    "lightTeal": "#00b7c3",
+    "lightPink": "#e3008c",
+    "lightBrown": "#a0522d",
+    "lightRed": "#e74856",
+    "maxColor": "#0078d4",
+}
+
+
+def _outlook_color_to_hex(color: str) -> str:
+    return _OUTLOOK_COLORS.get(color, "#0078d4")
