@@ -17,6 +17,7 @@ async def list_emails(
     offset: int = Query(0, ge=0),
     provider: str | None = Query(None),
     search: str | None = Query(None),
+    label: str | None = Query(None),
 ) -> dict:
     """List stored emails with pagination and filtering."""
     client = await get_client()
@@ -25,7 +26,19 @@ async def list_emails(
         params["provider"] = provider
     if search:
         params["search"] = search
+    if label:
+        params["label"] = label
     resp = await client.get(f"{settings.ingestion_url}/ingest/emails", params=params)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@router.get("/labels")
+async def list_labels() -> list[str]:
+    """Get all distinct email labels."""
+    client = await get_client()
+    resp = await client.get(f"{settings.ingestion_url}/ingest/emails/labels")
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
     return resp.json()
