@@ -19,7 +19,7 @@ from ingestion.providers import BaseEmailProvider
 from ingestion.providers.gmail import GmailProvider
 from ingestion.providers.outlook import OutlookProvider
 from ingestion.publisher import publish_new_email
-from ingestion.repository import get_email_by_id, get_sync_state, list_emails, save_sync_state, upsert_email
+from ingestion.repository import get_distinct_labels, get_email_by_id, get_emails_with_unresolved_labels, get_sync_state, list_emails, save_sync_state, update_email_labels, upsert_email
 from ingestion.schemas import EmailProvider as EP
 from ingestion.schemas import IngestResult, OAuthTokens
 
@@ -432,15 +432,53 @@ async def get_emails(
     offset: int = Query(0, ge=0),
     provider: str | None = Query(None),
     search: str | None = Query(None),
+    label: str | None = Query(None),
 ) -> EmailListResponse:
-    """List stored emails with pagination, optional provider filter, and text search."""
-    emails, total = await list_emails(limit=limit, offset=offset, provider=provider, search=search)
+    """List stored emails with pagination, optional provider/label filter, and text search."""
+    emails, total = await list_emails(limit=limit, offset=offset, provider=provider, search=search, label=label)
     return EmailListResponse(
         emails=[e.model_dump(mode="json") for e in emails],
         total=total,
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/emails/labels")
+async def get_labels() -> list[str]:
+    """Get all distinct email labels."""
+    return await get_distinct_labels()
+
+
+@router.post("/resolve-labels/gmail")
+async def resolve_gmail_labels() -> dict:
+    """Translate stored Gmail label IDs (Label_XXXXX) to human-friendly names for all existing emails."""
+    accounts = await get_accounts_by_provider(EP.GMAIL.value)
+    if not accounts:
+        raise HTTPException(status_code=404, detail="No Gmail accounts connected")
+
+    total_updated = 0
+    for acct in accounts:
+        tokens = OAuthTokens(
+            access_token=acct["access_token"],
+            refresh_token=acct["refresh_token"],
+            token_expiry=acct["token_expiry"],
+        )
+        adapter = GmailProvider(tokens=tokens)
+        await adapter.authenticate()
+        label_map = adapter._fetch_label_map()
+        if not label_map:
+            continue
+
+        emails = await get_emails_with_unresolved_labels(EP.GMAIL.value)
+        for email in emails:
+            translated = [label_map.get(lbl, lbl) for lbl in email["labels"]]
+            if translated != list(email["labels"]):
+                await update_email_labels(str(email["id"]), translated)
+                total_updated += 1
+
+    logger.info("gmail labels resolved", updated=total_updated)
+    return {"updated": total_updated}
 
 
 @router.get("/emails/{email_id}")

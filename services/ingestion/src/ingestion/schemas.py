@@ -37,6 +37,7 @@ class StoredEmail(BaseModel):
     received_at: datetime
     labels: list[str] = []
     markdown_body: str = ""
+    html_body: str = ""
     created_at: datetime
 
 
