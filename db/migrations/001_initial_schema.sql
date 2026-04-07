@@ -92,7 +92,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_source_email_id ON tasks (source_email_id);
 -- ─── calendar_events ───
 CREATE TABLE IF NOT EXISTS calendar_events (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    provider        TEXT NOT NULL CHECK (provider IN ('google', 'outlook')),
+    provider        TEXT NOT NULL CHECK (provider IN ('gmail', 'outlook')),
     external_id     TEXT NOT NULL,
     calendar_id     TEXT NOT NULL,
     title           TEXT NOT NULL,
