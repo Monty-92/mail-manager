@@ -19,6 +19,35 @@ class GoogleCalendarProvider(BaseCalendarProvider):
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._access_token}"}
 
+    async def list_calendars(self) -> list[dict]:
+        """List all calendars for this Google account."""
+        calendars: list[dict] = []
+        url = f"{GOOGLE_CALENDAR_API}/users/me/calendarList"
+        params: dict[str, str] = {"maxResults": "250"}
+
+        async with httpx.AsyncClient() as client:
+            while url:
+                resp = await client.get(url, headers=self._headers(), params=params, timeout=30.0)
+                resp.raise_for_status()
+                data = resp.json()
+
+                for item in data.get("items", []):
+                    calendars.append({
+                        "external_id": item["id"],
+                        "name": item.get("summary", item["id"]),
+                        "color": item.get("backgroundColor", "#4285f4"),
+                        "is_primary": item.get("primary", False),
+                    })
+
+                next_page = data.get("nextPageToken")
+                if next_page:
+                    params["pageToken"] = next_page
+                else:
+                    url = ""  # type: ignore[assignment]
+
+        logger.info("google calendars listed", count=len(calendars))
+        return calendars
+
     async def fetch_events(
         self, calendar_id: str = "primary", time_min: datetime | None = None, time_max: datetime | None = None
     ) -> list[dict]:
@@ -106,7 +135,7 @@ def _normalize_google_event(item: dict, calendar_id: str) -> dict | None:
             })
 
         return {
-            "provider": "google",
+            "provider": "gmail",
             "external_id": item["id"],
             "calendar_id": calendar_id,
             "title": item.get("summary", "(No title)"),
