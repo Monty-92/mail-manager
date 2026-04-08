@@ -188,7 +188,7 @@ async def get_emails_with_unresolved_labels(provider: str) -> list[dict]:
     pool = await get_pool()
     rows = await pool.fetch(
         "SELECT id, labels FROM emails WHERE provider = $1 AND EXISTS "
-        "(SELECT 1 FROM unnest(labels) AS l WHERE l LIKE 'Label\_%')",
+        r"(SELECT 1 FROM unnest(labels) AS l WHERE l LIKE 'Label\_%')",
         provider,
     )
     return [dict(r) for r in rows]

@@ -59,8 +59,19 @@ class ApiClient {
     return this.request<T>(url)
   }
 
-  async post<T>(path: string, body?: unknown): Promise<T> {
-    return this.request<T>(path, {
+  async post<T>(path: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
+    let url = path
+    if (params) {
+      const filtered = Object.entries(params).filter(([, v]) => v !== undefined)
+      if (filtered.length > 0) {
+        const searchParams = new URLSearchParams()
+        for (const [key, value] of filtered) {
+          searchParams.set(key, String(value))
+        }
+        url = `${path}?${searchParams.toString()}`
+      }
+    }
+    return this.request<T>(url, {
       method: 'POST',
       body: body !== undefined ? JSON.stringify(body) : undefined,
     })

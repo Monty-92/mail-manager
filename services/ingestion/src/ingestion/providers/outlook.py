@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from email.utils import parseaddr
 
@@ -31,23 +32,42 @@ class OutlookProvider(BaseEmailProvider):
         return EmailProvider.OUTLOOK
 
     def get_auth_url(self, state: str | None = None) -> tuple[str, str | None]:
-        """Return (auth_url, code_verifier) tuple. MSAL handles PKCE internally, so code_verifier is None."""
+        """Return (auth_url, serialized_auth_code_flow) tuple.
+
+        Uses MSAL's initiate_auth_code_flow() which manages PKCE internally.
+        The serialized auth_code_flow must be passed back to authenticate() on callback.
+        """
         kwargs: dict = {
             "scopes": SCOPES,
             "redirect_uri": settings.ms_redirect_uri,
         }
         if state:
             kwargs["state"] = state
-        result = self._msal_app.get_authorization_request_url(**kwargs)
-        return result, None
+        auth_code_flow = self._msal_app.initiate_auth_code_flow(**kwargs)
+        return auth_code_flow["auth_uri"], json.dumps(auth_code_flow)
 
     async def authenticate(self, auth_code: str | None = None, code_verifier: str | None = None) -> OAuthTokens:
         if auth_code:
-            result = self._msal_app.acquire_token_by_authorization_code(
-                code=auth_code,
-                scopes=SCOPES,
-                redirect_uri=settings.ms_redirect_uri,
-            )
+            # code_verifier holds the JSON-serialized auth_code_flow from initiate_auth_code_flow()
+            if code_verifier:
+                try:
+                    auth_code_flow = json.loads(code_verifier)
+                    # auth_response must include the echoed state for CSRF validation
+                    auth_response = {"code": auth_code, "state": auth_code_flow.get("state", "")}
+                    result = self._msal_app.acquire_token_by_auth_code_flow(auth_code_flow, auth_response)
+                except (json.JSONDecodeError, TypeError):
+                    # Fallback for legacy callers that don't pass the flow dict
+                    result = self._msal_app.acquire_token_by_authorization_code(
+                        code=auth_code,
+                        scopes=SCOPES,
+                        redirect_uri=settings.ms_redirect_uri,
+                    )
+            else:
+                result = self._msal_app.acquire_token_by_authorization_code(
+                    code=auth_code,
+                    scopes=SCOPES,
+                    redirect_uri=settings.ms_redirect_uri,
+                )
         elif self._tokens and self._tokens.refresh_token:
             result = self._msal_app.acquire_token_by_refresh_token(
                 refresh_token=self._tokens.refresh_token,

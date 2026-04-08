@@ -10,11 +10,12 @@ export function authCallback(body: { provider: string; code: string; redirect_ur
 }
 
 export function syncProvider(provider: string, maxResults = 100): Promise<SyncResponse> {
-  return api.post<SyncResponse>(`/ingest/sync/${provider}`, undefined)
+  return api.post<SyncResponse>(`/ingest/sync/${provider}`, undefined, { max_results: maxResults })
 }
 
 export function fetchProvider(provider: string, maxResults = 500, pageToken?: string): Promise<FetchResponse> {
-  const params: Record<string, string | number> = { max_results: maxResults }
-  if (pageToken) params.page_token = pageToken
-  return api.post<FetchResponse>(`/ingest/fetch/${provider}`)
+  return api.post<FetchResponse>(`/ingest/fetch/${provider}`, undefined, {
+    max_results: maxResults,
+    ...(pageToken ? { page_token: pageToken } : {}),
+  })
 }
