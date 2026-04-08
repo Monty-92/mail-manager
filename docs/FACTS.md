@@ -33,41 +33,51 @@
 - Redis: 6379
 - Ollama: 11434
 
-## Database Tables
-- emails (provider-agnostic: provider + external_id composite unique)
+## Database Tables (migrations 001–005 applied)
+- emails (provider-agnostic: provider + external_id composite unique; includes html_body TEXT column added in 004)
 - sync_state (provider PK, history_id for Gmail, delta_link for Outlook)
 - email_analyses (category, urgency, summary, action_items JSONB, key_topics, sentiment, is_junk, confidence)
 - topics, summaries
 - task_lists (containers for tasks, synced with Google Task lists)
-- tasks (enhanced: title, notes, priority, due_date, completed_at, position, list_id, parent_task_id)
+- tasks (enhanced: title, notes, priority, due_date, completed_at, position, list_id, parent_task_id, calendar_account_id FK)
 - calendar_events (provider + external_id, Google + Outlook)
+- calendars (provider, external_id, account_id FK, name, description, color, is_primary, is_selected, sync token)
 - app_user (single-user: username, password_hash bcrypt, totp_secret, setup_complete)
 - connected_accounts (provider, email, access_token, refresh_token, token_expiry, scopes)
+- user_config (key-value config table: llm_model, embed_model, auto_sync, auto_analyze, default_calendar)
+- pipeline_events (stage, email_id FK nullable, details JSONB, occurred_at; indexes on stage, email_id, occurred_at)
 - Junction: email_topics, summary_topics, task_topics
+- View: email_stats (total_emails, emails_today, unread_emails, preprocessed_emails, analyzed_emails)
 
 ## Build Phase Status
 - Phase A (Copilot config): DONE
 - Phase B (Repo scaffold): DONE
 - Phase B-PATCH (Scope expansion): DONE
-- Phase C1 (Ingestion Service): DONE — 35 tests passing
-- Phase C2 (Preprocessing): DONE — 40 tests passing
-- Phase C3 (LLM Analysis): DONE — 39 tests passing
-- Phase C4 (Topic Tracking): DONE — 25+ tests passing
-- Phase C5 (Summary Generation): DONE — 12+ tests passing
-- Phase C6 (Task Management): DONE — 9+ tests passing
-- Phase C6.5 (Calendar Sync): PARTIAL — logic implemented, tests needed (only health test)
-- Phase C7 (BFF Layer): DONE — 70+ tests passing
-- Phase C8 (Frontend): DONE — all views, stores, API wiring complete
-- Phase D (Polish): NOT STARTED
+- Phase C1 (Ingestion Service): DONE — Gmail + Outlook providers, 52 tests passing
+- Phase C2 (Preprocessing): DONE — 17 tests passing
+- Phase C3 (LLM Analysis): DONE — 17 tests passing (+ Docker test)
+- Phase C4 (Topic Tracking): DONE — matcher + router tests (Docker test only outside Docker)
+- Phase C5 (Summary Generation): DONE — Docker test + unit tests (Docker test only outside Docker)
+- Phase C6 (Task Management): DONE — extractor tests (Docker test only outside Docker)
+- Phase C6.5 (Calendar Sync): DONE — 44 tests passing (Google + Outlook providers, full router coverage)
+- Phase C7 (BFF Layer): DONE — 33 tests passing (auth, all proxy endpoints)
+- Phase C8 (Frontend): DONE — all views, stores, API wiring, HTML rendering, label/category filters
+- Phase D (Intelligence + Polish): DONE — RAG chat, Google Tasks bidirectional sync, dashboard stats, settings DB, pipeline audit log
 
-## Testing
-- All services: `cd services/<name> && uv run pytest`
-- Ingestion: 35 tests (converter: 12, providers: 10, router: 5, schemas: 7, health: 1)
-- Preprocessing: 40 tests (cleaner, embedder, pipeline, router, schemas, health, Docker)
-- LLM Analysis: 39 tests (schemas: 11, LLM client: 3, analyzer: 14, router: 5, Docker: 6)
-- Topic Tracking: 25+ tests (matcher: 11, router: 14)
-- Summary Generation: 12+ tests (generator: 8, llm_client: 4)
-- Task Management: 9+ tests (extractor: 9)
-- Calendar Sync: 1 test (health only — **tests needed**)
-- BFF: 70+ tests (ingestion: 6, preprocessing: 4, analysis: 5, topics: 11, summaries: 9, tasks: 28, Docker: 10, health: 2)
-- Total: 230+ tests passing across all services
+## Testing (actual baseline — post-Phase D stabilisation)
+- BFF: 33 passed — `cd services/bff && uv run pytest`
+- Ingestion: 52 passed, 2 known failures (test_sync/fetch_without_auth hit DB before auth check)
+- Preprocessing: 17 passed
+- LLM Analysis: 17 passed
+- Calendar Sync: 44 passed
+- Topic Tracking / Summary Generation / Task Management: 1 passed each outside Docker (test_docker.py only; other tests hang on lifespan DB connection — needs lifespan mocking)
+- Total baseline: 166 passed, 2 known pre-existing failures
+
+## Known Limitations / Issues
+- `make migrate` fails on Windows (Git's psql has incompatible path handling); workaround: `docker compose cp` + `docker compose exec postgres psql -f`
+- Topic-tracking/summary-gen/task-mgmt conftest.py has no lifespan mocking → tests hang outside Docker
+- Ingestion `_token_store` is in-memory dict (lost on restart); needs DB-backed storage
+- OAuth tokens stored in plaintext in `connected_accounts` table; should be encrypted
+- MSAL `get_authorization_request_url()` is deprecated; should migrate to `initiate_auth_code_flow()`
+- `client.ts post()` has no query-params support; `fetchProvider`/`syncProvider` in `ingestion.ts` don't pass params
+- Ingestion `repository.py` ~L191: SyntaxWarning for invalid escape sequence `\_` in SQL string
