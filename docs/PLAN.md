@@ -17,10 +17,27 @@ mail-manager is a modular email-intelligence and personal productivity engine. I
 - **Phase C4 (Topic Tracking)**: ✅ DONE — 3-stage topic assignment, full CRUD, 25+ tests passing
 - **Phase C5 (Summary Generation)**: ✅ DONE — daily/thread summaries, Ollama integration, 12+ tests passing
 - **Phase C6 (Task Management)**: ✅ DONE — task CRUD with subtasks/lists, email extraction, 9+ tests passing
-- **Phase C6.5 (Calendar Sync)**: ⚠️ PARTIAL — Google + Outlook providers implemented, router complete, **tests needed**
-- **Phase C7 (BFF Layer)**: ✅ DONE — auth flow, 61+ proxy endpoints, 70+ tests passing
-- **Phase C8 (Frontend)**: ✅ DONE — all 9 views, 7/8 stores, full API wiring, theming
-- **Phase D (Polish)**: NOT STARTED
+- **Phase C6.5 (Calendar Sync)**: ✅ DONE — Google + Outlook providers implemented, **44 tests passing**
+- **Phase C7 (BFF Layer)**: ✅ DONE — auth flow, 61+ proxy endpoints, 33+ tests passing
+- **Phase C8 (Frontend)**: ✅ DONE — all 9 views, 8 stores, full API wiring, HTML email rendering, label/category filtering
+- **Phase D (Polish + Intelligence)**: ✅ DONE — RAG chat streaming, Google Tasks bidirectional sync, dashboard email stats (`email_stats` view, `pipeline_events` table), settings DB wiring (`user_config` table), pipeline audit log, migrations 004+005 applied
+
+---
+
+## Phase E and Beyond
+
+See **[docs/COMPLETION_PLAN.md](COMPLETION_PLAN.md)** for the comprehensive remaining-work plan covering:
+
+- Phase E1: Merge PR #20 to main
+- Phase E2: Living documents update
+- Phase E3: Immediate bug fixes (client.ts params, MSAL migration, escape sequence warning)
+- Phase E4: Test coverage gap (lifespan mocking for out-of-Docker test runs)
+- Phase E5: Security hardening (token encryption, in-memory store → DB)
+- Phase E6: Frontend polish (stats store, settings persistence, chat refinements)
+- Phase E7: Frontend testing (Vitest setup)
+- Phase E8: E2E / pipeline smoke tests
+- Phase E9: Production hardening (make migrate Windows fix, rate limiting, pagination)
+- Phase F+: Future extensions (Notion, Slack, knowledge graph, calendar writes)
 
 ---
 

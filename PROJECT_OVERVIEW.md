@@ -101,6 +101,7 @@ Service  Service     Service    Tracking  Service   Service     Sync
   - **Topic extraction** — identify and cluster semantic topics
   - **Action-item detection** — surface tasks and follow-ups
   - **Junk / deal classification** — separate noise from value
+  - **RAG-powered chat** — answer natural-language questions about emails, topics, and summaries by retrieving relevant context via pgvector similarity search and streaming responses via SSE
 
 ### 4.4 Topic Tracking Service
 
@@ -123,6 +124,7 @@ Service  Service     Service    Tracking  Service   Service     Sync
 - Extracts tasks and action items from emails
 - Syncs **bidirectionally** with Google Tasks API (lists ↔ task_lists, tasks ↔ tasks)
 - Maintains sync metadata (external task ID, last-sync timestamp, conflict state)
+- Google Tasks client built with `google-api-python-client`; tokens sourced from `connected_accounts`
 
 ### 4.7 Calendar Sync Service
 
@@ -134,10 +136,10 @@ Service  Service     Service    Tracking  Service   Service     Sync
 
 ### 4.8 BFF Layer
 
-- Provides a clean, versioned REST (and optional GraphQL) API for the UI
+- Provides a clean, versioned REST API for the UI at `/api/v1/`
 - Aggregates and shapes data from multiple internal services
 - Handles user authentication and permission checks
-- Rate-limits and caches responses where appropriate
+- Endpoints include: auth (setup/login/TOTP), email browser, ingestion triggers, preprocessing, LLM analysis, topics, summaries, tasks, calendar, accounts, chat (SSE streaming), stats (dashboard + pipeline), settings (user_config CRUD)
 
 ### 4.9 Frontend (Vue 3 + Tailwind CSS + TypeScript)
 
@@ -175,6 +177,7 @@ All data is stored in PostgreSQL to ensure consistent querying, semantic search,
 | `received_at` | TIMESTAMPTZ | Received timestamp |
 | `labels` | TEXT[] | Provider labels/categories |
 | `markdown_body` | TEXT | Full email body as Markdown |
+| `html_body` | TEXT | Raw HTML body (preserved for rendering) |
 | `embedding` | vector(768) | Semantic embedding (pgvector, nomic-embed-text) |
 | `created_at` | TIMESTAMPTZ | Row creation timestamp |
 
@@ -305,6 +308,55 @@ Unique constraint: `(provider, external_id)`.
 | `created_at` | TIMESTAMPTZ | Row creation timestamp |
 
 Unique constraint: `(provider, email)`.
+
+### 5.10 `calendars`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID PK | Internal identifier |
+| `provider` | TEXT | `gmail` or `outlook` |
+| `external_id` | TEXT | Provider calendar ID |
+| `account_id` | UUID FK → `connected_accounts` | Owning account |
+| `name` | TEXT | Calendar display name |
+| `description` | TEXT | Calendar description |
+| `color` | TEXT | Display color |
+| `is_primary` | BOOLEAN | Primary calendar flag |
+| `is_selected` | BOOLEAN | Whether selected for sync |
+| `sync_token` | TEXT | Incremental sync token |
+| `created_at` | TIMESTAMPTZ | Row creation timestamp |
+
+Unique constraint: `(provider, external_id)`.
+
+### 5.11 `user_config`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `key` | TEXT PK | Config key |
+| `value` | TEXT | Config value |
+| `updated_at` | TIMESTAMPTZ | Last update timestamp |
+
+Pre-seeded keys: `llm_model` (`llama3.1:8b`), `embed_model` (`nomic-embed-text`), `auto_sync` (`true`), `auto_analyze` (`true`), `default_calendar` (`google`).
+
+### 5.12 `pipeline_events`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID PK | Internal identifier |
+| `stage` | TEXT | Pipeline stage name (e.g. `ingested`, `preprocessed`, `analyzed`) |
+| `email_id` | UUID FK → `emails` nullable | Associated email (nullable for non-email events) |
+| `details` | JSONB | Stage-specific details |
+| `occurred_at` | TIMESTAMPTZ | When the event occurred |
+
+Indexes on `stage`, `email_id`, `occurred_at DESC`.
+
+### 5.13 `email_stats` (view)
+
+A materialized-style view computing:
+- `total_emails` — total row count
+- `emails_today` — rows with `received_at::date = CURRENT_DATE`
+- `unread_emails` — rows where `'UNREAD'` is in labels
+- `preprocessed_emails` — emails with non-null `embedding`
+- `analyzed_emails` — emails with a corresponding `email_analyses` row
 
 ---
 
