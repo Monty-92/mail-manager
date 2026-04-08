@@ -73,6 +73,13 @@ class ApiClient {
     })
   }
 
+  async put<T>(path: string, body: unknown): Promise<T> {
+    return this.request<T>(path, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    })
+  }
+
   async delete(path: string): Promise<void> {
     return this.request<void>(path, { method: 'DELETE' })
   }

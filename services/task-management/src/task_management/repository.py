@@ -152,10 +152,10 @@ async def create_task(data: TaskCreate) -> Task:
 
     row = await pool.fetchrow(
         """
-        INSERT INTO tasks (title, notes, status, priority, due_date, position, list_id, parent_task_id, source_email_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        INSERT INTO tasks (title, notes, status, priority, due_date, position, list_id, parent_task_id, source_email_id, calendar_account_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING id, title, notes, status, priority, due_date, completed_at, position,
-                  list_id, parent_task_id, source_email_id, google_task_id, last_synced_at,
+                  list_id, parent_task_id, source_email_id, google_task_id, calendar_account_id, last_synced_at,
                   created_at, updated_at
         """,
         data.title,
@@ -167,6 +167,7 @@ async def create_task(data: TaskCreate) -> Task:
         data.list_id,
         data.parent_task_id,
         data.source_email_id,
+        data.calendar_account_id,
     )
     logger.info("task created", task_id=str(row["id"]), title=data.title)
     return _row_to_task(row)
@@ -178,7 +179,7 @@ async def get_task_by_id(task_id: str, include_subtasks: bool = True) -> Task | 
     row = await pool.fetchrow(
         """
         SELECT id, title, notes, status, priority, due_date, completed_at, position,
-               list_id, parent_task_id, source_email_id, google_task_id, last_synced_at,
+               list_id, parent_task_id, source_email_id, google_task_id, calendar_account_id, last_synced_at,
                created_at, updated_at
         FROM tasks
         WHERE id = $1
@@ -389,8 +390,9 @@ def _row_to_task(row) -> Task:
         list_id=str(row["list_id"]) if row["list_id"] else None,
         parent_task_id=str(row["parent_task_id"]) if row["parent_task_id"] else None,
         source_email_id=str(row["source_email_id"]) if row["source_email_id"] else None,
-        google_task_id=row["google_task_id"],
-        last_synced_at=row["last_synced_at"],
+        google_task_id=row.get("google_task_id"),
+        calendar_account_id=str(row["calendar_account_id"]) if row.get("calendar_account_id") else None,
+        last_synced_at=row.get("last_synced_at"),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

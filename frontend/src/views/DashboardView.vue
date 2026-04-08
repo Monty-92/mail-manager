@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, computed } from 'vue'
+import { onMounted, computed, ref } from 'vue'
 import {
   EnvelopeIcon,
   ClipboardDocumentListIcon,
@@ -21,11 +21,15 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SkeletonLoader from '@/components/ui/SkeletonLoader.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
+import { getDashboardStats } from '@/api/stats'
+import type { DashboardStats } from '@/api/stats'
 
 const taskStore = useTaskStore()
 const summaryStore = useSummaryStore()
 const topicStore = useTopicStore()
 const { renderMarkdown } = useMarkdown()
+
+const stats = ref<DashboardStats | null>(null)
 
 const today = computed(() => new Date().toISOString().split('T')[0])
 
@@ -63,6 +67,7 @@ onMounted(async () => {
     taskStore.fetchTaskLists(),
     summaryStore.fetchSummaries(),
     topicStore.fetchTopics(),
+    getDashboardStats().then((d) => { stats.value = d }).catch(() => {}),
   ])
 })
 </script>
@@ -70,7 +75,19 @@ onMounted(async () => {
 <template>
   <div class="mx-auto max-w-7xl space-y-6">
     <!-- Stats row -->
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      <StatCard
+        label="Unread Emails"
+        :value="stats?.emails.unread_emails ?? '—'"
+        :icon="EnvelopeIcon"
+        color="var(--color-primary)"
+      />
+      <StatCard
+        label="Emails Today"
+        :value="stats?.emails.emails_today ?? '—'"
+        :icon="CalendarDaysIcon"
+        color="var(--color-info)"
+      />
       <StatCard
         label="Active Tasks"
         :value="taskStore.pendingTasks.length"

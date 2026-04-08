@@ -148,3 +148,33 @@ async def delete_task(task_id: str) -> None:
     resp = await client.delete(f"{settings.task_management_url}/tasks/{task_id}")
     if resp.status_code not in (204, 200):
         raise HTTPException(status_code=resp.status_code, detail=resp.json().get("detail", "upstream error"))
+
+
+@router.post("/sync/push")
+async def sync_push_tasks() -> dict:
+    """Push local tasks to Google Tasks."""
+    client = await get_client()
+    resp = await client.post(f"{settings.task_management_url}/tasks/sync/push")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.json().get("detail", "upstream error"))
+    return resp.json()
+
+
+@router.post("/sync/pull")
+async def sync_pull_tasks() -> dict:
+    """Pull tasks from Google Tasks into local DB."""
+    client = await get_client()
+    resp = await client.post(f"{settings.task_management_url}/tasks/sync/pull")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.json().get("detail", "upstream error"))
+    return resp.json()
+
+
+@router.post("/sync/full")
+async def sync_full_tasks() -> dict:
+    """Bidirectional Google Tasks sync (push then pull)."""
+    client = await get_client()
+    resp = await client.post(f"{settings.task_management_url}/tasks/sync/full")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.json().get("detail", "upstream error"))
+    return resp.json()

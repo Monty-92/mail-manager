@@ -1,9 +1,11 @@
+import json
+
 import structlog
 
 from preprocessing.cleaner import prepare_embedding_text
 from preprocessing.embedder import generate_embedding
 from preprocessing.events import publish_preprocessed
-from preprocessing.repository import get_email_by_id, store_embedding
+from preprocessing.repository import get_email_by_id, get_pool, store_embedding
 from preprocessing.schemas import EmailEvent, PreprocessingStatus, PreprocessResult
 
 logger = structlog.get_logger()
@@ -59,6 +61,7 @@ async def preprocess_email(email_id: str) -> PreprocessResult:
 
         # Publish success event
         await publish_preprocessed(email_id, PreprocessingStatus.COMPLETED.value)
+        await _write_pipeline_event(email_id, "preprocessed", {"embedding_dim": len(result.embedding)})
 
         logger.info("email preprocessed", email_id=email_id, embedding_dim=len(result.embedding))
         return PreprocessResult(
@@ -78,6 +81,19 @@ async def preprocess_email(email_id: str) -> PreprocessResult:
             status=PreprocessingStatus.FAILED,
             error=str(exc),
         )
+
+
+async def _write_pipeline_event(email_id: str, stage: str, details: dict) -> None:
+    """Fire-and-forget insert into pipeline_events."""
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO pipeline_events (stage, email_id, details) VALUES ($1, $2::uuid, $3::jsonb)",
+                stage, email_id, json.dumps(details),
+            )
+    except Exception:
+        logger.warning("failed to write pipeline event", stage=stage, email_id=email_id)
 
 
 async def handle_new_email_event(event: EmailEvent) -> None:

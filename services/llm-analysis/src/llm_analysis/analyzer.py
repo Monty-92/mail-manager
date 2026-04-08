@@ -1,10 +1,12 @@
 """Email analysis pipeline — orchestrates LLM analysis of preprocessed emails."""
 
+import json
+
 import structlog
 
 from llm_analysis.config import settings
 from llm_analysis.llm_client import analyze_email_text
-from llm_analysis.repository import get_email_by_id, store_analysis
+from llm_analysis.repository import get_email_by_id, get_pool, store_analysis
 from llm_analysis.schemas import (
     ActionItem,
     AnalysisResult,
@@ -99,8 +101,23 @@ async def analyze_email(email_id: str) -> AnalysisResult:
     stored = await store_analysis(result)
     if not stored:
         result.error = "failed to store analysis"
+    else:
+        await _write_pipeline_event(email_id, "analyzed", {"category": result.category.value, "urgency": result.urgency.value})
 
     return result
+
+
+async def _write_pipeline_event(email_id: str, stage: str, details: dict) -> None:
+    """Fire-and-forget insert into pipeline_events."""
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO pipeline_events (stage, email_id, details) VALUES ($1, $2::uuid, $3::jsonb)",
+                stage, email_id, json.dumps(details),
+            )
+    except Exception:
+        logger.warning("failed to write pipeline event", stage=stage, email_id=email_id)
 
 
 async def handle_preprocessed_event(event: PreprocessedEvent) -> None:

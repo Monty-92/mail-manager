@@ -1,5 +1,6 @@
 """Topic matching and assignment pipeline."""
 
+import json
 from datetime import date, timezone, datetime
 
 import structlog
@@ -10,6 +11,7 @@ from topic_tracking.repository import (
     find_similar_topics,
     find_topic_by_name,
     get_email_for_topics,
+    get_pool,
     link_email_topic,
     update_topic_snapshot,
 )
@@ -93,7 +95,22 @@ async def assign_topics_for_email(email_id: str) -> list[TopicMatch]:
         topic_count=len(matches),
         new_topics=sum(1 for m in matches if m.is_new),
     )
+    if matches:
+        await _write_pipeline_event(email_id, "topics_assigned", {"topic_count": len(matches)})
     return matches
+
+
+async def _write_pipeline_event(email_id: str, stage: str, details: dict) -> None:
+    """Fire-and-forget insert into pipeline_events."""
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO pipeline_events (stage, email_id, details) VALUES ($1, $2::uuid, $3::jsonb)",
+                stage, email_id, json.dumps(details),
+            )
+    except Exception:
+        logger.warning("failed to write pipeline event", stage=stage, email_id=email_id)
 
 
 async def handle_analyzed_event(event: AnalyzedEvent) -> None:
