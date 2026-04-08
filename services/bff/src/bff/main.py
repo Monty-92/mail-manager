@@ -12,7 +12,10 @@ from bff.routers import analysis, ingestion, preprocessing, summaries, tasks, to
 from bff.routers import accounts as accounts_router
 from bff.routers import auth as auth_router
 from bff.routers import calendar as calendar_router
+from bff.routers import chat as chat_router
 from bff.routers import emails as emails_router
+from bff.routers import settings as settings_router
+from bff.routers import stats as stats_router
 
 logger = structlog.get_logger()
 
@@ -60,6 +63,9 @@ app.include_router(analysis.router)
 app.include_router(topics.router)
 app.include_router(summaries.router)
 app.include_router(tasks.router)
+app.include_router(chat_router.router)
+app.include_router(settings_router.router)
+app.include_router(stats_router.router)
 
 
 @app.get("/health")

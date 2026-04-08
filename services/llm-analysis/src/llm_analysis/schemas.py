@@ -91,3 +91,22 @@ class StoredAnalysis(BaseModel):
     model_used: str
     created_at: datetime
     updated_at: datetime
+
+
+# ─── Chat / RAG models ───
+
+
+class ChatScope(StrEnum):
+    GLOBAL = "global"
+    PROJECT = "project"
+    TOPIC = "topic"
+    EMAIL = "email"
+
+
+class ChatRequest(BaseModel):
+    """Inbound chat query with optional scope context."""
+
+    query: str = Field(..., min_length=1, max_length=4000)
+    scope: ChatScope = ChatScope.GLOBAL
+    scope_id: str | None = None
+    model: str | None = None  # override configured model per-request

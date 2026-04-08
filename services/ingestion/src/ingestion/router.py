@@ -19,7 +19,7 @@ from ingestion.providers import BaseEmailProvider
 from ingestion.providers.gmail import GmailProvider
 from ingestion.providers.outlook import OutlookProvider
 from ingestion.publisher import publish_new_email
-from ingestion.repository import get_distinct_labels, get_email_by_id, get_emails_with_unresolved_labels, get_sync_state, list_emails, save_sync_state, update_email_labels, upsert_email
+from ingestion.repository import get_distinct_labels, get_email_by_id, get_emails_with_unresolved_labels, get_pool, get_sync_state, list_emails, save_sync_state, update_email_labels, upsert_email
 from ingestion.schemas import EmailProvider as EP
 from ingestion.schemas import IngestResult, OAuthTokens
 
@@ -177,6 +177,7 @@ async def _run_sync_for_provider(provider: EP) -> IngestResult:
             if stored:
                 result.new_stored += 1
                 await publish_new_email(stored)
+                await _write_pipeline_event(str(stored.id), "ingested", {"provider": provider.value})
             else:
                 result.duplicates_skipped += 1
 
@@ -403,6 +404,7 @@ async def fetch_emails(
             if stored:
                 result.new_stored += 1
                 await publish_new_email(stored)
+                await _write_pipeline_event(str(stored.id), "ingested", {"provider": provider.value})
             else:
                 result.duplicates_skipped += 1
 
@@ -491,6 +493,20 @@ async def get_email(email_id: str) -> dict:
 
 
 # ─── Helpers ───
+
+
+async def _write_pipeline_event(email_id: str, stage: str, details: dict) -> None:
+    """Fire-and-forget insert into pipeline_events."""
+    import json
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO pipeline_events (stage, email_id, details) VALUES ($1, $2::uuid, $3::jsonb)",
+                stage, email_id, json.dumps(details),
+            )
+    except Exception:
+        logger.warning("failed to write pipeline event", stage=stage, email_id=email_id)
 
 
 async def _fetch_user_profile(provider: EP, access_token: str) -> tuple[str, str]:

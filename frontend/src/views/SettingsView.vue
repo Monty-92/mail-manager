@@ -18,6 +18,8 @@ import type { ThemeMode, ThemeColors } from '@/types'
 import BaseCard from '@/components/ui/BaseCard.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
+import { getSettings, updateSetting } from '@/api/settings'
+import { api } from '@/api/client'
 
 const themeStore = useThemeStore()
 const accountStore = useAccountStore()
@@ -32,8 +34,65 @@ const deviceFlowUserCode = ref('')
 const deviceFlowUri = ref('')
 const deviceFlowPolling = ref(false)
 
+// ─── LLM / Sync settings ───
+const settingsLoaded = ref(false)
+const settingsSaving = ref<Record<string, boolean>>({})
+const llmModel = ref('llama3.1:8b')
+const embedModel = ref('nomic-embed-text')
+const autoSync = ref(true)
+const autoAnalyze = ref(true)
+const syncLoading = ref<Record<string, boolean>>({})
+
+async function loadSettings() {
+  try {
+    const data = await getSettings()
+    if (data.llm_model) llmModel.value = data.llm_model
+    if (data.embed_model) embedModel.value = data.embed_model
+    autoSync.value = data.auto_sync !== 'false'
+    autoAnalyze.value = data.auto_analyze !== 'false'
+    settingsLoaded.value = true
+  } catch {
+    // non-fatal — use defaults
+    settingsLoaded.value = true
+  }
+}
+
+async function saveSetting(key: string, value: string) {
+  settingsSaving.value[key] = true
+  try {
+    await updateSetting(key, value)
+    toast.success('Setting saved')
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : 'Failed to save')
+  } finally {
+    settingsSaving.value[key] = false
+  }
+}
+
+async function toggleAutoSync() {
+  autoSync.value = !autoSync.value
+  await saveSetting('auto_sync', String(autoSync.value))
+}
+
+async function toggleAutoAnalyze() {
+  autoAnalyze.value = !autoAnalyze.value
+  await saveSetting('auto_analyze', String(autoAnalyze.value))
+}
+
+async function triggerSync(endpoint: string, label: string) {
+  syncLoading.value[endpoint] = true
+  try {
+    await api.post(`/${endpoint}`)
+    toast.success(`${label} triggered`)
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : `Failed to trigger ${label}`)
+  } finally {
+    syncLoading.value[endpoint] = false
+  }
+}
+
 onMounted(async () => {
-  await accountStore.fetchAccounts()
+  await Promise.all([accountStore.fetchAccounts(), loadSettings()])
 })
 
 const tabs = [
@@ -449,25 +508,47 @@ async function removeAccount(id: string) {
             <label class="mb-1.5 block text-xs font-medium" :style="{ color: 'var(--color-text-secondary)' }">
               Model
             </label>
-            <select
-              class="w-full rounded-lg border bg-transparent px-3 py-2 text-sm outline-none"
-              :style="{ borderColor: 'var(--color-border)', color: 'var(--color-text-primary)' }"
-            >
-              <option value="llama3.1:8b">llama3.1:8b (default)</option>
-              <option value="llama3.1:70b">llama3.1:70b</option>
-              <option value="mistral:7b">mistral:7b</option>
-            </select>
+            <div class="flex gap-2">
+              <select
+                v-model="llmModel"
+                class="flex-1 rounded-lg border bg-transparent px-3 py-2 text-sm outline-none"
+                :style="{ borderColor: 'var(--color-border)', color: 'var(--color-text-primary)' }"
+              >
+                <option value="llama3.1:8b">llama3.1:8b (default)</option>
+                <option value="llama3.1:70b">llama3.1:70b</option>
+                <option value="mistral:7b">mistral:7b</option>
+              </select>
+              <BaseButton
+                variant="secondary"
+                size="sm"
+                :loading="settingsSaving['llm_model']"
+                @click="saveSetting('llm_model', llmModel)"
+              >
+                Save
+              </BaseButton>
+            </div>
           </div>
           <div>
             <label class="mb-1.5 block text-xs font-medium" :style="{ color: 'var(--color-text-secondary)' }">
               Embedding Model
             </label>
-            <select
-              class="w-full rounded-lg border bg-transparent px-3 py-2 text-sm outline-none"
-              :style="{ borderColor: 'var(--color-border)', color: 'var(--color-text-primary)' }"
-            >
-              <option value="nomic-embed-text">nomic-embed-text (default)</option>
-            </select>
+            <div class="flex gap-2">
+              <select
+                v-model="embedModel"
+                class="flex-1 rounded-lg border bg-transparent px-3 py-2 text-sm outline-none"
+                :style="{ borderColor: 'var(--color-border)', color: 'var(--color-text-primary)' }"
+              >
+                <option value="nomic-embed-text">nomic-embed-text (default)</option>
+              </select>
+              <BaseButton
+                variant="secondary"
+                size="sm"
+                :loading="settingsSaving['embed_model']"
+                @click="saveSetting('embed_model', embedModel)"
+              >
+                Save
+              </BaseButton>
+            </div>
           </div>
           <div>
             <label class="mb-1.5 block text-xs font-medium" :style="{ color: 'var(--color-text-secondary)' }">
@@ -493,14 +574,18 @@ async function removeAccount(id: string) {
                 Automatically sync new emails from connected accounts
               </p>
             </div>
-            <div
-              class="relative h-6 w-11 cursor-pointer rounded-full transition-colors"
-              :style="{ backgroundColor: 'var(--color-primary)' }"
+            <button
+              class="relative h-6 w-11 rounded-full transition-colors focus:outline-none"
+              :style="{ backgroundColor: autoSync ? 'var(--color-primary)' : 'var(--color-border)' }"
+              :aria-checked="autoSync"
+              role="switch"
+              @click="toggleAutoSync"
             >
-              <div
-                class="absolute top-0.5 left-5 h-5 w-5 rounded-full bg-white shadow transition-transform"
+              <span
+                class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                :style="{ transform: autoSync ? 'translateX(20px)' : 'translateX(2px)' }"
               />
-            </div>
+            </button>
           </div>
           <div class="flex items-center justify-between">
             <div>
@@ -509,29 +594,53 @@ async function removeAccount(id: string) {
                 Automatically analyze new emails with the LLM
               </p>
             </div>
-            <div
-              class="relative h-6 w-11 cursor-pointer rounded-full transition-colors"
-              :style="{ backgroundColor: 'var(--color-primary)' }"
+            <button
+              class="relative h-6 w-11 rounded-full transition-colors focus:outline-none"
+              :style="{ backgroundColor: autoAnalyze ? 'var(--color-primary)' : 'var(--color-border)' }"
+              :aria-checked="autoAnalyze"
+              role="switch"
+              @click="toggleAutoAnalyze"
             >
-              <div
-                class="absolute top-0.5 left-5 h-5 w-5 rounded-full bg-white shadow transition-transform"
+              <span
+                class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                :style="{ transform: autoAnalyze ? 'translateX(20px)' : 'translateX(2px)' }"
               />
-            </div>
+            </button>
           </div>
         </div>
       </BaseCard>
 
       <BaseCard title="Manual Actions" subtitle="Trigger batch operations manually">
         <div class="flex flex-wrap gap-3">
-          <BaseButton variant="secondary">
+          <BaseButton
+            variant="secondary"
+            :loading="syncLoading['ingest/sync/gmail']"
+            @click="triggerSync('ingest/sync/gmail', 'Gmail sync')"
+          >
             <ArrowPathIcon class="h-4 w-4" />
             Sync All Emails
           </BaseButton>
-          <BaseButton variant="secondary">
+          <BaseButton
+            variant="secondary"
+            :loading="syncLoading['tasks/sync/full']"
+            @click="triggerSync('tasks/sync/full', 'Google Tasks sync')"
+          >
+            <ArrowPathIcon class="h-4 w-4" />
+            Sync Google Tasks
+          </BaseButton>
+          <BaseButton
+            variant="secondary"
+            :loading="syncLoading['preprocessing/run']"
+            @click="triggerSync('preprocessing/run', 'Preprocessing batch')"
+          >
             <ArrowPathIcon class="h-4 w-4" />
             Preprocess Batch
           </BaseButton>
-          <BaseButton variant="secondary">
+          <BaseButton
+            variant="secondary"
+            :loading="syncLoading['analysis/run']"
+            @click="triggerSync('analysis/run', 'Analysis batch')"
+          >
             <ArrowPathIcon class="h-4 w-4" />
             Analyze Batch
           </BaseButton>

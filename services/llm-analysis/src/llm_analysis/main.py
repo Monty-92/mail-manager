@@ -6,6 +6,7 @@ import structlog
 from fastapi import FastAPI
 
 from llm_analysis.analyzer import handle_preprocessed_event
+from llm_analysis.chat_router import chat_router
 from llm_analysis.events import close_redis, subscribe_preprocessed_emails
 from llm_analysis.repository import close_pool, get_pool
 from llm_analysis.router import router
@@ -41,6 +42,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="LLM Analysis Service", version="0.1.0", lifespan=lifespan)
 app.include_router(router)
+app.include_router(chat_router)
 
 
 @app.get("/health")

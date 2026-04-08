@@ -67,3 +67,18 @@ export function updateTask(taskId: string, payload: UpdateTaskPayload): Promise<
 export function deleteTask(taskId: string): Promise<void> {
   return api.delete(`/tasks/${taskId}`)
 }
+
+// ─── Google Tasks Sync ───
+
+export function syncPushTasks(): Promise<Record<string, unknown>> {
+  return api.post<Record<string, unknown>>('/tasks/sync/push')
+}
+
+export function syncPullTasks(): Promise<Record<string, unknown>> {
+  return api.post<Record<string, unknown>>('/tasks/sync/pull')
+}
+
+export function syncFullTasks(): Promise<Record<string, unknown>> {
+  return api.post<Record<string, unknown>>('/tasks/sync/full')
+}
+

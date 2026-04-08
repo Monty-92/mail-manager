@@ -63,6 +63,7 @@ class TaskCreate(BaseModel):
     list_id: str | None = None
     parent_task_id: str | None = None
     source_email_id: str | None = None
+    calendar_account_id: str | None = None  # which Google account to sync to
 
 
 class TaskUpdate(BaseModel):
@@ -92,6 +93,7 @@ class Task(BaseModel):
     parent_task_id: str | None = None
     source_email_id: str | None = None
     google_task_id: str | None = None
+    calendar_account_id: str | None = None
     last_synced_at: datetime | None = None
     subtasks: list["Task"] = Field(default_factory=list)
     created_at: datetime | None = None

@@ -29,6 +29,7 @@ from task_management.schemas import (
     TaskSummary,
     TaskUpdate,
 )
+from task_management.sync import pull_tasks_from_google, push_tasks_to_google
 
 logger = structlog.get_logger()
 
@@ -135,3 +136,26 @@ async def remove_task(task_id: str) -> None:
     deleted = await delete_task(task_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="task not found")
+
+
+# ─── Google Tasks Sync Endpoints ───
+
+
+@router.post("/sync/push", tags=["sync"])
+async def sync_push_to_google(account_id: str | None = Query(None, description="Specific Gmail account ID")) -> dict:
+    """Push un-synced local tasks to Google Tasks."""
+    return await push_tasks_to_google(account_id)
+
+
+@router.post("/sync/pull", tags=["sync"])
+async def sync_pull_from_google(account_id: str | None = Query(None, description="Specific Gmail account ID")) -> dict:
+    """Pull task status changes back from Google Tasks."""
+    return await pull_tasks_from_google(account_id)
+
+
+@router.post("/sync/full", tags=["sync"])
+async def sync_full(account_id: str | None = Query(None)) -> dict:
+    """Run a full bidirectional sync: push then pull."""
+    push_result = await push_tasks_to_google(account_id)
+    pull_result = await pull_tasks_from_google(account_id)
+    return {"push": push_result, "pull": pull_result}
