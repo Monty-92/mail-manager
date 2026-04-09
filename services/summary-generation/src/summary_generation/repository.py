@@ -117,7 +117,7 @@ async def get_summary(summary_type: SummaryType, target_date: date) -> Summary |
     row = await pool.fetchrow(
         """
         SELECT s.id, s.summary_type, s.date, s.markdown_body,
-               s.embedding::float[] AS embedding, s.diff_hash, s.created_at
+               s.diff_hash, s.created_at
         FROM summaries s
         WHERE s.summary_type = $1 AND s.date = $2
         """,
@@ -127,13 +127,12 @@ async def get_summary(summary_type: SummaryType, target_date: date) -> Summary |
     if row is None:
         return None
     topic_ids = await _get_topic_ids_for_summary(str(row["id"]))
-    embedding = list(row["embedding"]) if row["embedding"] is not None else None
     return Summary(
         id=str(row["id"]),
         summary_type=row["summary_type"],
         date=row["date"],
         markdown_body=row["markdown_body"],
-        embedding=embedding,
+        embedding=None,
         diff_hash=row["diff_hash"],
         topic_ids=topic_ids,
         created_at=row["created_at"],
@@ -146,7 +145,7 @@ async def get_summary_by_id(summary_id: str) -> Summary | None:
     row = await pool.fetchrow(
         """
         SELECT id, summary_type, date, markdown_body,
-               embedding::float[] AS embedding, diff_hash, created_at
+               diff_hash, created_at
         FROM summaries
         WHERE id = $1
         """,
@@ -155,13 +154,12 @@ async def get_summary_by_id(summary_id: str) -> Summary | None:
     if row is None:
         return None
     topic_ids = await _get_topic_ids_for_summary(str(row["id"]))
-    embedding = list(row["embedding"]) if row["embedding"] is not None else None
     return Summary(
         id=str(row["id"]),
         summary_type=row["summary_type"],
         date=row["date"],
         markdown_body=row["markdown_body"],
-        embedding=embedding,
+        embedding=None,
         diff_hash=row["diff_hash"],
         topic_ids=topic_ids,
         created_at=row["created_at"],
