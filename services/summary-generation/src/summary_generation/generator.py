@@ -5,7 +5,7 @@ from datetime import date
 
 import structlog
 
-from summary_generation.llm_client import generate_daily_summary, generate_embedding, generate_thread_summary
+from summary_generation.llm_client import NOISE_CATEGORIES, generate_daily_summary, generate_embedding, generate_thread_summary
 from summary_generation.repository import (
     get_emails_for_date,
     get_emails_for_thread,
@@ -46,6 +46,10 @@ async def generate_daily(target_date: date, summary_type: SummaryType) -> Summar
             error="no emails found for this date",
         )
 
+    # Split into substantive emails (sent to LLM in full) and noise (counted only)
+    content_entries = [e for e in entries if e.category.lower() not in NOISE_CATEGORIES]
+    noise_entries = [e for e in entries if e.category.lower() in NOISE_CATEGORIES]
+
     # Check if existing summary has same content
     existing = await get_summary(summary_type, target_date)
     is_regenerated = existing is not None
@@ -53,7 +57,8 @@ async def generate_daily(target_date: date, summary_type: SummaryType) -> Summar
     markdown_body = await generate_daily_summary(
         summary_type=summary_type.value,
         target_date=str(target_date),
-        entries=entries,
+        entries=content_entries,
+        noise_entries=noise_entries,
     )
 
     diff_hash = _compute_diff_hash(markdown_body)
