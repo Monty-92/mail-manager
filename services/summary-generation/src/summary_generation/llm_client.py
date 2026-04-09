@@ -10,23 +10,32 @@ from summary_generation.schemas import EmailDigestEntry
 
 logger = structlog.get_logger()
 
+# Categories treated as noise — counted in stats but not included in the detailed email list.
+NOISE_CATEGORIES = frozenset({"marketing", "newsletter", "spam"})
+
 DAILY_SYSTEM_PROMPT = """You are a personal email assistant generating a daily email digest summary.
 Given a list of emails received on a specific date, produce a well-structured Markdown summary.
 
 The summary MUST include:
 1. A header with the date and summary type (morning/evening)
-2. A quick stats line (total emails, urgent items count, action items count)
+2. A quick stats section — total emails received (including promotional/junk), urgent items count,
+   action items count, and a dedicated **Promotional/Junk** line showing how many were excluded
 3. **Urgent & Important** section — emails with urgency "critical" or "high"
 4. **Action Items** section — all action items extracted from emails
-5. **By Category** section — brief overview grouped by email category
+5. **By Category** section — brief overview grouped by email category (do NOT include promotional/
+   junk/newsletter/spam here; they are not in the email list)
 6. **Key Topics** section — the main topics that appeared across emails
+
+Important: promotional, marketing, newsletter and spam emails are excluded from the email list —
+only their total count (and optional breakdown) is provided in the header line. Show this count
+in Quick Stats but do NOT create detail entries or category sections for them.
 
 Format the output as clean Markdown. Be concise but informative.
 Return ONLY the Markdown content, no JSON wrapping."""
 
 DAILY_USER_TEMPLATE = """Generate a {summary_type} summary for {date}.
 
-Emails received ({email_count} total):
+Emails received ({total_count} total{noise_note}):
 
 {email_entries}"""
 
@@ -68,6 +77,8 @@ def _format_email_entry(entry: EmailDigestEntry) -> str:
 
 def _format_email_entries(entries: list[EmailDigestEntry]) -> str:
     """Format all email entries for the LLM prompt."""
+    if not entries:
+        return "(no emails to review)"
     return "\n\n".join(_format_email_entry(e) for e in entries)
 
 
@@ -75,14 +86,33 @@ async def generate_daily_summary(
     summary_type: str,
     target_date: str,
     entries: list[EmailDigestEntry],
+    noise_entries: list[EmailDigestEntry] | None = None,
 ) -> str:
-    """Generate a daily digest summary via Ollama. Returns Markdown text."""
-    email_entries_text = _format_email_entries(entries)
+    """Generate a daily digest summary via Ollama. Returns Markdown text.
+
+    ``entries`` are the substantive emails passed to the LLM in full detail.
+    ``noise_entries`` (promotional/marketing/newsletter/spam) are excluded from
+    the detail list — only their count and category breakdown are surfaced.
+    """
+    noise_entries = noise_entries or []
+    noise_count = len(noise_entries)
+    total_count = len(entries) + noise_count
+
+    if noise_count:
+        by_cat: dict[str, int] = {}
+        for e in noise_entries:
+            by_cat[e.category] = by_cat.get(e.category, 0) + 1
+        breakdown = ", ".join(f"{cnt} {cat}" for cat, cnt in sorted(by_cat.items()))
+        noise_note = f", {noise_count} promotional/junk excluded ({breakdown})"
+    else:
+        noise_note = ""
+
     user_message = DAILY_USER_TEMPLATE.format(
         summary_type=summary_type,
         date=target_date,
-        email_count=len(entries),
-        email_entries=email_entries_text,
+        total_count=total_count,
+        noise_note=noise_note,
+        email_entries=_format_email_entries(entries),
     )
 
     return await _call_ollama(DAILY_SYSTEM_PROMPT, user_message)

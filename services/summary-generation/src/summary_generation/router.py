@@ -2,6 +2,7 @@
 
 from datetime import date
 
+import httpx
 import structlog
 from fastapi import APIRouter, HTTPException, Query
 
@@ -41,9 +42,12 @@ async def generate_daily_summary(
     """Generate (or regenerate) a daily summary for the given date and type."""
     try:
         result = await generate_daily(target_date, summary_type)
-    except Exception:
+    except (httpx.ConnectError, httpx.TimeoutException) as exc:
+        logger.exception("LLM service unreachable", summary_type=summary_type, date=str(target_date))
+        raise HTTPException(status_code=502, detail="LLM service unavailable — is the Ollama model loaded?") from exc
+    except Exception as exc:
         logger.exception("failed to generate daily summary", summary_type=summary_type, date=str(target_date))
-        raise HTTPException(status_code=502, detail="LLM service unavailable — is the Ollama model loaded?")
+        raise HTTPException(status_code=500, detail=f"Summary generation failed: {exc}") from exc
     if result.error:
         raise HTTPException(status_code=422, detail=result.error)
     if result.summary_id:
