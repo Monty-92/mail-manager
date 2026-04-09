@@ -80,12 +80,13 @@ async def test_generate_daily_summary(client):
     with (
         patch("summary_generation.router.generate_daily", new_callable=AsyncMock, return_value=_MOCK_RESULT),
         patch("summary_generation.router.publish_summary_generated", new_callable=AsyncMock),
+        patch("summary_generation.router.get_summary", new_callable=AsyncMock, return_value=_MOCK_SUMMARY),
     ):
         response = await client.post("/summaries/daily?summary_type=morning&date=2026-04-04")
     assert response.status_code == 200
     data = response.json()
-    assert data["summary_id"] == "s-1"
-    assert data["email_count"] == 5
+    assert data["id"] == "s-1"
+    assert data["summary_type"] == "morning"
 
 
 @pytest.mark.asyncio
@@ -98,9 +99,8 @@ async def test_generate_daily_summary_no_emails(client):
     )
     with patch("summary_generation.router.generate_daily", new_callable=AsyncMock, return_value=no_email_result):
         response = await client.post("/summaries/daily?summary_type=morning&date=2026-04-04")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["error"] == "no emails found for this date"
+    assert response.status_code == 422
+    assert "no emails found" in response.json()["detail"]
 
 
 @pytest.mark.asyncio

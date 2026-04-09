@@ -33,6 +33,7 @@ line-length = 120
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+addopts = "-m 'not docker'"
 markers = [
     "docker: tests that require Docker daemon (deselect with '-m not docker')",
 ]
