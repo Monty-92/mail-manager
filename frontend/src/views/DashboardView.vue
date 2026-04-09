@@ -21,6 +21,7 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SkeletonLoader from '@/components/ui/SkeletonLoader.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
+import CopyMenu from '@/components/ui/CopyMenu.vue'
 import { getDashboardStats } from '@/api/stats'
 import type { DashboardStats } from '@/api/stats'
 
@@ -122,6 +123,7 @@ onMounted(async () => {
           <template #header>
             <div class="flex items-center gap-2">
               <SunIcon class="h-4 w-4" :style="{ color: 'var(--color-warning)' }" />
+              <CopyMenu v-if="todayMorning" :markdown="todayMorning.markdown_body" />
               <BaseButton
                 v-if="!todayMorning"
                 size="sm"
@@ -151,6 +153,7 @@ onMounted(async () => {
           <template #header>
             <div class="flex items-center gap-2">
               <MoonIcon class="h-4 w-4" :style="{ color: 'var(--color-primary)' }" />
+              <CopyMenu v-if="todayEvening" :markdown="todayEvening.markdown_body" />
               <BaseButton
                 v-if="!todayEvening"
                 size="sm"
